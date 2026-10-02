@@ -28,6 +28,7 @@ from xml.parsers import expat
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 from ptt import parse_title  # noqa: E402  (vendored PTT, MIT)
+import donor_health  # noqa: E402  (sampled STAT on all news servers, vendored cyclops)
 
 log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
@@ -52,6 +53,9 @@ class Config:
     state_dir: str = "/var/lib/nzbget-dupe-proxy"
     enabled: bool = True
     dry_run: bool = False
+    health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
+    donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
+    health_connections: int = 2   # per news server, so nzbget keeps its own connection slots
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -251,6 +255,10 @@ def _int(v):
         return 0
 
 
+def pct(share):
+    return "?" if share is None else "%d%%" % round(100 * share)
+
+
 def rpc_result(status, body):
     """Integer `result` of an nzbget JSON-RPC reply (NZBID for append), 0 on any error."""
     try:
@@ -426,14 +434,17 @@ class Proxy:
                         verified.append((r, data, ci))
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
-        verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
+        alive = self.check_health(path, auth, title, info, verified, stats)
+        verified = [v for v in verified if v[2].fingerprint in alive]
+        verified.sort(key=lambda v: (-round(alive[v[2].fingerprint] or 0, 1), dist(v[2].total_bytes), -v[0].grabs,
+                                     -v[0].date))
         if len(verified) > cfg.max_donors:
             stats["over-cap"] = len(verified) - cfg.max_donors
         added = 0
         for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
-            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d]" % (
-                score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs)
+            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s]" % (
+                score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(alive[ci.fingerprint]))
             if cfg.dry_run:
                 log.info("DRY-RUN would add donor %s", desc)
                 continue
@@ -454,10 +465,46 @@ class Proxy:
                  " dry_run would_add=%d" % min(len(verified), cfg.max_donors) if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
 
-    def rpc(self, path, auth, method, params):
-        """JSON-RPC call to nzbget with Hydra's own path + credentials; result or 0 on error."""
+    def check_health(self, path, auth, title, info, verified, stats):
+        """Sampled STAT of primary + donors on nzbget's news servers -> {donor fingerprint: alive share|None}.
+        Donors below DONOR_MIN_ALIVE are counted as 'dead' and left out."""
+        alive = {ci.fingerprint: None for _, _, ci in verified}
+        if not self.cfg.health_percent or not verified:
+            return alive
+        servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
+                                                          self.cfg.health_connections, self.cfg.timeout)
+        if not servers:
+            log.info("health check skipped for %s: no active news servers in nzbget config", title)
+            return alive
+        try:
+            log.info("health %s: primary alive=%s on %d server(s)", title,
+                     pct(donor_health.availability(servers, info.message_ids, self.cfg.health_percent).alive),
+                     len(servers))
+            for r, _, ci in verified:
+                h = donor_health.availability(servers, ci.message_ids, self.cfg.health_percent)
+                if h.alive is not None and h.alive < self.cfg.donor_min_alive:
+                    stats["dead"] += 1
+                    del alive[ci.fingerprint]
+                    log.info("dropping dead donor %s [%s]: alive=%s (%d/%d sampled articles on no server)",
+                             r.title, r.indexer, pct(h.alive), h.missing, h.checked)
+                else:
+                    alive[ci.fingerprint] = h.alive
+        except Exception as e:  # health is advisory: never lose donors to a checker failure
+            log.warning("health check failed for %s: %s", title, type(e).__name__)
+        return alive
+
+    def rpc_call(self, path, auth, method, params):
+        """JSON-RPC call to nzbget with Hydra's own path + credentials; raw result or None."""
         body = json.dumps({"jsonrpc": "2.0", "id": "dupe-proxy", "method": method, "params": params}).encode()
-        return rpc_result(*self.forward(path, body, {"Authorization": auth, "Content-Type": "application/json"})[:2])
+        status, rbody, _ = self.forward(path, body, {"Authorization": auth, "Content-Type": "application/json"})
+        try:
+            return json.loads(rbody).get("result") if status == 200 else None
+        except (ValueError, AttributeError):
+            return None
+
+    def rpc(self, path, auth, method, params):
+        """Integer result of an nzbget JSON-RPC call (NZBID for append), 0 on error."""
+        return _int(self.rpc_call(path, auth, method, params))
 
     def start(self, host="0.0.0.0"):
         handler = type("BoundHandler", (Handler,), {"proxy": self})

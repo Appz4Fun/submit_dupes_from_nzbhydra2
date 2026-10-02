@@ -53,6 +53,11 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      same DupeKey, score 90, 89, …, the same category, and `AddPaused=false`. nzbget has
      `DupeCheck=yes`, so it moves them straight to history as dupe backups. That makes them donors,
      and also re-download candidates if the primary fails.
+- **Donor health ([cyclops](https://github.com/Appz4Fun/cyclops), vendored).** The proxy reads nzbget's
+  news servers through JSON-RPC `config`, using Hydra's credentials. Server passwords are never logged. For
+  each verified donor (and the primary, for the log) it `STAT`s a 2% sample of the articles. It tries every
+  active server in turn, and an article counts as missing only when all of them answer 430. A donor whose
+  sample is mostly gone is dropped as `dead`. The survivors are ranked by how much of the sample is alive.
 - **The real content check is nzbget's.** Before DupeArticleFallback uses any donor bytes, it fetches
   probe articles and compares at least 16 KiB of data. A donor whose name matches but whose content
   differs only costs a few probe articles; it cannot corrupt the download.
@@ -84,6 +89,9 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `HYDRA_APIKEY` | (none) | Hydra API key |
 | `MAX_DONORS` | `8` | max donors per append |
 | `SIZE_TOLERANCE` | `0` | `0` = size is not a filter; for example `0.2` skips Hydra results more than 20% off |
+| `HEALTH_PERCENT` | `2` | STAT this % of each NZB's articles (min 20, max 300) on **every** active news server from nzbget's config; `0` = off |
+| `DONOR_MIN_ALIVE` | `0.5` | drop a donor (`rejected: dead`) when less than this share of its sampled articles exists on any server |
+| `HEALTH_CONNECTIONS` | `2` | connections per news server for the health check, so nzbget keeps its own slots |
 | `STATE_DIR` | `/var/lib/nzbget-dupe-proxy` | state file location |
 | `ENABLED` | `true` | `false` = pure pass-through (kill switch) |
 | `DRY_RUN` | `0` | `1` = discover and log donors, append only the primary (also `--dry-run`) |

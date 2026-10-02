@@ -3,7 +3,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 install -d -m 755 /opt/nzbget-dupe-proxy
-install -m 644 nzbget_dupe_proxy.py /opt/nzbget-dupe-proxy/nzbget_dupe_proxy.py
+install -m 644 nzbget_dupe_proxy.py donor_health.py /opt/nzbget-dupe-proxy/
 rm -rf /opt/nzbget-dupe-proxy/vendor && cp -r vendor /opt/nzbget-dupe-proxy/vendor
 find /opt/nzbget-dupe-proxy -type d -exec chmod 755 {} + && find /opt/nzbget-dupe-proxy -type f -exec chmod 644 {} +
 install -m 644 deploy/nzbget-dupe-proxy.service /etc/systemd/system/nzbget-dupe-proxy.service

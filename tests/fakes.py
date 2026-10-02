@@ -1,6 +1,7 @@
 """In-process fakes: a JSON-RPC nzbget and a newznab NZBHydra2, plus request/NZB builders."""
 import base64
 import json
+import socketserver
 import threading
 import time
 import urllib.error
@@ -43,7 +44,7 @@ class _NzbgetHandler(BaseHTTPRequestHandler):
                                   "auth": self.headers.get("Authorization"), "time": time.time()})
             result = nzbid
         else:
-            result = {"version": "27.0", "writelog": True}.get(method, [])
+            result = {"version": "27.0", "writelog": True, "config": o.config_entries}.get(method, [])
         o.last_response = json.dumps({"version": "1.1", "id": req.get("id"), "result": result}, indent=1).encode()
         self._send(200, o.last_response, "application/json")
 
@@ -64,6 +65,7 @@ class FakeNzbget:
         self.next_id = 1000
         self.require_auth = None
         self.last_response = None
+        self.config_entries = []
         serve(_NzbgetHandler, self)
 
 
@@ -163,3 +165,46 @@ def append_body(nzb=b"<nzb/>", title="Some.Release", category="", dupekey="", sc
     """Exactly what Hydra 9.0.4's jsonrpc4j client sends for addContent()."""
     params = [title + ".nzb", base64.b64encode(nzb).decode(), category, 0, False, False, dupekey, score, "SCORE", []]
     return json.dumps({"id": rid, "jsonrpc": "2.0", "method": "append", "params": params}).encode()
+
+
+class _NntpHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        o = self.server.owner
+        self.wfile.write(b"200 fake news\r\n")
+        for raw in self.rfile:
+            cmd = raw.decode().strip()
+            if cmd.startswith("AUTHINFO USER"):
+                self.wfile.write(b"381 more\r\n")
+            elif cmd.startswith("AUTHINFO PASS"):
+                self.wfile.write(b"281 ok\r\n" if cmd == "AUTHINFO PASS " + o.password else b"481 denied\r\n")
+            elif cmd.startswith("STAT "):
+                mid = cmd[5:].strip("<>")
+                o.stats.append(mid)
+                self.wfile.write(("223 0 <%s>\r\n" % mid if mid in o.articles else "430 no such article\r\n").encode())
+            elif cmd == "QUIT":
+                self.wfile.write(b"205 bye\r\n")
+                return
+            else:
+                self.wfile.write(b"500 unknown\r\n")
+
+
+class FakeNntp:
+    """Plain-TCP NNTP server answering STAT from a set of message-ids (without <>)."""
+
+    def __init__(self, articles=(), password="pw"):
+        self.articles, self.password, self.stats = set(articles), password, []
+        srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))
+        srv.daemon_threads, srv.owner, self.server = True, self, srv
+        threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
+        self.port = srv.server_address[1]
+
+    def config(self, n, active="yes"):
+        """nzbget `config` entries describing this server as ServerN."""
+        return [{"Name": "Server%d.%s" % (n, k), "Value": v} for k, v in
+                (("Active", active), ("Host", "127.0.0.1"), ("Port", str(self.port)), ("Username", "u"),
+                 ("Password", self.password), ("Encryption", "no"), ("Connections", "8"))]
+
+
+def article_ids(nzb):
+    import re
+    return [m.decode() for m in re.findall(rb">([^<>]+@x)</segment>", nzb)]
