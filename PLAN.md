@@ -50,9 +50,18 @@ Source: `core/src/main/java/org/nzbhydra/downloading/downloaders/nzbget/NzbGet.j
 | Other calls | `status []`, `config null` (categories from `CategoryN.Name`), `listgroups [0]`, `history [true]` (reads `Kind` NZB/DUP). |
 | append | `append(nzbName, contentOrLink, category, 0, false, addPaused, "", 0, "SCORE", [])`. `nzbName` = result title + `.nzb` if missing. Content is base64 NZB (UPLOAD mode) or a URL (link mode). **DupeKey is always `""`, DupeScore `0`, DupeMode `"SCORE"`, PPParameters empty.** Hydra throws if result `<= 0`. |
 
-Live confirmation (Task 1, step 6): run the proxy pass-through on the server on a temporary port and
-call Hydra's own "Test connection" endpoint against it; the proxy log must show `POST /jsonrpc` +
-`writelog` + Basic auth.
+Live confirmation (Task 1, step 6, done 2026-10-02): ran the proxy pass-through on the server on temp
+port 6791 and called Hydra's own Test-connection endpoint (`POST /internalapi/downloader/checkConnection`,
+needs the `XSRF-TOKEN` cookie echoed as `X-XSRF-TOKEN`; it builds a throwaway downloader and persists
+nothing) with URL `http://192.168.1.93:6791`. Hydra answered `{"successful": true}`; the proxy captured:
+
+```
+POST /jsonrpc  Authorization: Basic <masked>  User-Agent: NZBHydra2  Content-Type: application/json-rpc
+{"id":"406397322","jsonrpc":"2.0","method":"writelog","params":["INFO","NZBHydra 2 connected to test connection"]}
+-> 200 {"version" : "1.1", "id" : "406397322", "result" : true}
+```
+
+Note the JSON-RPC `id` is a **string**; synthesized replies must echo it unchanged.
 
 ### Findings: what nzbget (PR 850 build) can use as a donor
 
