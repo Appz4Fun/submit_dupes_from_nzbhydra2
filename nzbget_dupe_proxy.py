@@ -6,17 +6,25 @@ background worker finds other postings of the same release via Hydra's newznab A
 them under the same DupeKey with lower DupeScores, so nzbget keeps them as duplicate backups
 (donors for DupeArticleFallback). Python 3 stdlib only.
 """
+import base64
 import hashlib
+import json
 import logging
 import os
 import re
 import sys
 import threading
+import time
+import urllib.parse
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from dataclasses import dataclass, fields
+from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree as ET
+from xml.parsers import expat
 
 log = logging.getLogger("nzbget-dupe-proxy")
 
@@ -37,14 +45,12 @@ class Config:
 
     @classmethod
     def from_env(cls, env):
-        flag = lambda v: str(v).strip().lower() in ("1", "true", "yes", "on")  # noqa: E731
+        """Each field from the env var of the same name in upper case (LISTEN_PORT, ...)."""
         c = cls()
-        for name, conv in (("listen_port", int), ("nzbget_url", str), ("hydra_url", str),
-                           ("hydra_apikey", str), ("max_donors", int), ("size_tolerance", float),
-                           ("state_dir", str), ("enabled", flag), ("dry_run", flag),
-                           ("deadline", float), ("timeout", float)):
-            if env.get(name.upper(), "") != "":
-                setattr(c, name, conv(env[name.upper()]))
+        for f in fields(cls):
+            v, conv = str(env.get(f.name.upper(), "")).strip(), type(getattr(c, f.name))
+            if v:
+                setattr(c, f.name, v.lower() in ("1", "true", "yes", "on") if conv is bool else conv(v))
         c.nzbget_url, c.hydra_url = c.nzbget_url.rstrip("/"), c.hydra_url.rstrip("/")
         return c
 
@@ -62,10 +68,6 @@ def normalize_title(name):
     name = re.sub(r"\[[^\]]*\]|\{[^}]*\}", " ", name).strip()
     name = JUNK_RE.sub("", name)
     return re.sub(r"[\s._\-()+,]+", ".", name.lower()).strip(".")
-
-
-def title_tokens(name):
-    return set(normalize_title(name).split("."))
 
 
 def short_query(title):
@@ -92,14 +94,23 @@ class NzbInfo:
         return hashlib.sha1("\n".join(sorted(self.message_ids)).encode()).hexdigest()
 
 
+def safe_xml(data):
+    """ElementTree.fromstring that refuses entity declarations (billion laughs / XXE); ValueError."""
+    def no_entities(*_):
+        raise ValueError("XML declares entities")
+    tb, p = ET.TreeBuilder(), expat.ParserCreate(namespace_separator="}")
+    p.StartElementHandler, p.EndElementHandler, p.CharacterDataHandler = tb.start, tb.end, tb.data
+    p.EntityDeclHandler = no_entities
+    try:
+        p.Parse(data, True)
+        return tb.close()
+    except (expat.ExpatError, AssertionError) as e:
+        raise ValueError("malformed XML: %s" % e)
+
+
 def parse_nzb(data):
     """Parse NZB bytes into an NzbInfo; ValueError if malformed or empty."""
-    if b"<!ENTITY" in data[:4096]:
-        raise ValueError("NZB declares XML entities")
-    try:
-        root = ET.fromstring(data)
-    except ET.ParseError as e:
-        raise ValueError("malformed NZB: %s" % e)
+    root = safe_xml(data)
     tag = lambda el: el.tag.rsplit("}", 1)[-1]  # noqa: E731
     files, names, ids, total, poster, meta = 0, set(), set(), 0, "", {}
     for el in root.iter():
@@ -141,7 +152,7 @@ def candidate_ok(primary_title, primary_bytes, r, tol):
     """Hydra result worth fetching: size close, same episode/year, and similar title."""
     if not primary_bytes or abs(r.size - primary_bytes) > tol * primary_bytes:
         return False
-    p, c = title_tokens(primary_title), title_tokens(r.title)
+    p, c = set(normalize_title(primary_title).split(".")), set(normalize_title(r.title).split("."))
     if {t for t in p if MARKER_RE.match(t)} - c:
         return False
     return normalize_title(primary_title) == normalize_title(r.title) or len(p & c) >= 0.5 * len(p)
@@ -154,6 +165,69 @@ def mask(text):
     return re.sub(r"/[^/:\s]+:[^/\s]+/(json|xml)rpc", r"/***/\1rpc", text)
 
 
+GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
+STATE_TTL = 30 * 86400   # s: forget groups after this
+
+
+class State:
+    """JSON file {key: {t, files, bytes, names, fps: {message-id fingerprint: nzbid}}}."""
+
+    def __init__(self, state_dir):
+        self.path = os.path.join(state_dir, "state.json")
+        self.lock = threading.RLock()
+        try:
+            with open(self.path) as f:
+                self.data = json.load(f)
+        except (OSError, ValueError):
+            self.data = {}
+
+    def save(self):
+        now = time.time()
+        self.data = {k: v for k, v in self.data.items() if now - v["t"] < STATE_TTL}
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path + ".tmp", "w") as f:
+                json.dump(self.data, f)
+            os.replace(self.path + ".tmp", self.path)
+        except OSError as e:
+            log.error("cannot write state %s: %s", self.path, e)
+
+    def group_for(self, info, now):
+        """Key of a recent group whose primary looks like the same release as `info`."""
+        for key, g in sorted(self.data.items(), key=lambda kv: -kv[1]["t"]):
+            if now - g["t"] < GROUP_WINDOW and g["bytes"] and verify(
+                    NzbInfo(g["files"], g["bytes"], frozenset(g["names"]), "", frozenset(), {}), info):
+                return key
+        return None
+
+    def sent(self, key, fp):
+        return self.data.get(key, {}).get("fps", {}).get(fp)
+
+    def record(self, key, fp, nzbid, info=None, touch=False):
+        g = self.data.setdefault(key, {"t": time.time(), "files": 0, "bytes": 0, "names": [], "fps": {}})
+        if touch:
+            g["t"] = time.time()
+        if info and (touch or not g["bytes"]):
+            g.update(files=info.files, bytes=info.total_bytes, names=sorted(info.filenames))
+        g["fps"][fp] = nzbid
+        self.save()
+
+
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def rpc_result(status, body):
+    """Integer `result` of an nzbget JSON-RPC reply (NZBID for append), 0 on any error."""
+    try:
+        return _int(json.loads(body).get("result")) if status == 200 else 0
+    except (ValueError, AttributeError):
+        return 0
+
+
 class Handler(BaseHTTPRequestHandler):
     proxy = None  # set by Proxy.start
     protocol_version = "HTTP/1.1"
@@ -163,7 +237,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        self._reply(*self.proxy.forward(self.path, body, self.headers, self.command))
+        reply = None
+        if self.proxy.cfg.enabled and self.command == "POST" and self.path.endswith("/jsonrpc"):
+            reply = self.proxy.handle_append(self.path, body, self.headers)
+        self._reply(*(reply or self.proxy.forward(self.path, body, self.headers, self.command)))
 
     do_GET = do_POST
 
@@ -178,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
 class Proxy:
     def __init__(self, cfg):
         self.cfg = cfg
+        self.state = State(cfg.state_dir)
         self.workers = []
         self.server = None
 
@@ -194,6 +272,172 @@ class Proxy:
         except OSError as e:
             log.error("nzbget unreachable for %s: %s", mask(path), e)
             return 502, b"nzbget unreachable", "text/plain"
+
+    # ---- append interception -------------------------------------------------------------
+    def handle_append(self, path, body, headers):
+        """Rewrite + forward a positional JSON-RPC append; None means 'not ours, pass through'."""
+        try:
+            req = json.loads(body)
+            params = req["params"]
+            if req.get("method") != "append" or not isinstance(params, list) or len(params) != 10:
+                return None
+        except (ValueError, TypeError, KeyError, AttributeError):
+            return None
+        t0, title = time.time(), re.sub(r"(?i)\.nzb$", "", str(params[0]))
+        info = None
+        try:
+            info = parse_nzb(base64.b64decode(params[1], validate=True))
+        except (ValueError, TypeError) as e:
+            log.info("append %s: content is not an NZB (%s); no donor discovery", title, e)
+        with self.state.lock:
+            key = params[6] or (info and self.state.group_for(info, t0)) or "dupes:" + normalize_title(title)
+            g = self.state.data.get(key)
+            fresh = bool(g) and t0 - g["t"] < GROUP_WINDOW
+            old = info and fresh and self.state.sent(key, info.fingerprint)
+            if old:
+                log.info("append key=%s nzbid=%s title=%s: posting already sent, not re-adding", key, old, title)
+                return 200, json.dumps({"version": "1.1", "id": req.get("id"), "result": old}).encode(), "application/json"
+            params[6:9] = [key, 100, "SCORE"]
+            status, rbody, ctype = self.forward(path, json.dumps(req).encode(), headers)
+            nzbid = rpc_result(status, rbody)
+            if info and nzbid > 0:
+                self.state.record(key, info.fingerprint, nzbid, info, touch=not fresh)
+        if nzbid <= 0 or not info or fresh or not self.cfg.hydra_url:
+            why = "joined existing group" if fresh else "no discovery"
+            log.info("append key=%s nzbid=%s title=%s: %s", key, nzbid, title, why)
+        else:
+            t = threading.Thread(target=self._discover_safe, daemon=True,
+                                 args=(key, title, info, params[2], path, headers.get("Authorization"), nzbid, t0))
+            self.workers = [w for w in self.workers if w.is_alive()] + [t]
+            t.start()
+        return status, rbody, ctype
+
+    def _discover_safe(self, *args):
+        try:
+            self.discover(*args)
+        except Exception:  # never let a donor problem escape the worker
+            log.exception("donor discovery crashed for key=%s", args[0])
+
+    # ---- donor discovery -----------------------------------------------------------------
+    def hydra_search(self, params):
+        q = dict(params, limit=100, apikey=self.cfg.hydra_apikey)
+        url = self.cfg.hydra_url + "/api?" + urllib.parse.urlencode(q)
+        with urllib.request.urlopen(url, timeout=self.cfg.timeout) as r:
+            root = safe_xml(r.read())
+        if root.tag == "error":
+            raise OSError("hydra error %s: %s" % (root.get("code"), root.get("description")))
+        out = []
+        for it in root.iter("item"):
+            a = {x.get("name"): x.get("value") for x in it if x.tag.endswith("}attr")}
+            try:
+                date = parsedate_to_datetime(a["usenetdate"]).timestamp()
+            except (KeyError, TypeError, ValueError):
+                date = 0.0
+            out.append(Result((it.findtext("title") or "").strip(), (it.findtext("link") or "").strip(),
+                              _int(a.get("size") or it.findtext("size")), _int(a.get("grabs")), date,
+                              a.get("hydraIndexerName", "")))
+        return out
+
+    def queries(self, title, info):
+        norm = normalize_title(title)
+        qs = [{"t": "search", "q": norm.replace(".", " ")}]
+        short = short_query(title)
+        if short and short != qs[0]["q"]:
+            qs.append({"t": "search", "q": short})
+        imdb = re.sub(r"\D", "", info.meta.get("imdb", ""))
+        if imdb:
+            qs.append({"t": "movie", "imdbid": imdb})
+        tvdb = re.sub(r"\D", "", info.meta.get("tvdb", ""))
+        m = re.search(r"(?:^|\.)s(\d+)e(\d+)(?:\.|$)", norm)
+        if tvdb and m:
+            qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
+        return qs
+
+    def fetch(self, r):
+        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'."""
+        try:
+            with urllib.request.urlopen(r.link, timeout=self.cfg.timeout) as resp:
+                data = resp.read()
+        except OSError as e:
+            log.info("donor fetch failed %s (%s): %s", r.title, r.indexer, mask(e))
+            return "fetch", None, None
+        try:
+            return "ok", data, parse_nzb(data)
+        except ValueError:
+            return "parse", None, None
+
+    def discover(self, key, title, info, category, path, auth, nzbid, t0):
+        cfg, stats, deadline = self.cfg, Counter(), t0 + self.cfg.deadline
+        pool = ThreadPoolExecutor(4)
+        try:
+            results = {}
+            for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info)]:
+                try:
+                    for r in f.result(timeout=max(0.0, deadline - time.time())):
+                        results.setdefault(r.link, r)
+                except FutureTimeout:
+                    stats["deadline"] += 1
+                except Exception as e:
+                    log.warning("hydra search failed for %s: %s", title, mask(e))
+            cands = sorted((r for r in results.values() if r.link and candidate_ok(
+                title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (-r.grabs, -r.date))
+            sizes, first, rest = set(), [], []
+            for r in cands:  # one posting of each distinct size first: same size is often the same posting
+                (rest if r.size in sizes else first).append(r)
+                sizes.add(r.size)
+            order, verified, fps = (first + rest)[:3 * cfg.max_donors], [], {info.fingerprint}
+            for i in range(0, len(order), 4):
+                if len(verified) >= cfg.max_donors:
+                    break
+                if time.time() > deadline:
+                    stats["deadline"] += len(order) - i
+                    break
+                chunk = order[i:i + 4]
+                for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk)):
+                    if reason != "ok":
+                        stats[reason] += 1
+                    elif not verify(info, ci):
+                        stats["mismatch"] += 1
+                    elif ci.fingerprint in fps:
+                        stats["same-posting"] += 1
+                    else:
+                        fps.add(ci.fingerprint)
+                        verified.append((r, data, ci))
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        verified.sort(key=lambda v: (-v[0].grabs, -v[0].date))
+        stats["over-cap"] += max(0, len(verified) - cfg.max_donors)
+        added = 0
+        for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
+            if time.time() > deadline:
+                stats["deadline"] += 1
+                continue
+            name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
+            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d]" % (score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs)
+            if cfg.dry_run:
+                log.info("DRY-RUN would add donor %s", desc)
+                continue
+            with self.state.lock:
+                if self.state.sent(key, ci.fingerprint):
+                    stats["already-sent"] += 1
+                    continue
+                params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", []]
+                donor_id = self.rpc(path, auth, "append", params)
+                if donor_id > 0:
+                    self.state.record(key, ci.fingerprint, donor_id)
+                    added += 1
+                    log.info("added donor nzbid=%d %s", donor_id, desc)
+                else:
+                    stats["append"] += 1
+        log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s time=%.1fs",
+                 key, nzbid, title, len(results), len(cands), len(verified), added,
+                 " dry_run would_add=%d" % min(len(verified), cfg.max_donors) if cfg.dry_run else "",
+                 dict(stats), time.time() - t0)
+
+    def rpc(self, path, auth, method, params):
+        """JSON-RPC call to nzbget with Hydra's own path + credentials; result or 0 on error."""
+        body = json.dumps({"jsonrpc": "2.0", "id": "dupe-proxy", "method": method, "params": params}).encode()
+        return rpc_result(*self.forward(path, body, {"Authorization": auth, "Content-Type": "application/json"})[:2])
 
     def start(self, host="0.0.0.0"):
         handler = type("BoundHandler", (Handler,), {"proxy": self})

@@ -82,3 +82,16 @@ def test_parse_nzb_rejects_entity_declarations():
     bomb = b'<?xml version="1.0"?><!DOCTYPE n [<!ENTITY a "aaaa"><!ENTITY b "&a;&a;">]><nzb><file subject="&b;"><segments><segment bytes="1">x@y</segment></segments></file></nzb>'
     with pytest.raises(ValueError):
         parse_nzb(bomb)
+
+
+def test_parse_nzb_rejects_entities_after_padding():
+    pad = b"<!--" + b" " * 8000 + b"-->"
+    bomb = b'<?xml version="1.0"?>' + pad + b'<!DOCTYPE n [<!ENTITY a "aaaa">]><nzb><file subject="&a;"><segments><segment bytes="1">x@y</segment></segments></file></nzb>'
+    with pytest.raises(ValueError):
+        parse_nzb(bomb)
+
+
+def test_parse_nzb_accepts_standard_doctype():
+    nzb = make_nzb([("a.mkv", [5])]).replace(
+        b"\n<nzb", b'\n<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">\n<nzb', 1)
+    assert parse_nzb(nzb).files == 1
