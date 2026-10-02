@@ -1,0 +1,20 @@
+[Unit]
+Description=nzbget-dupe-proxy (NZBHydra2 -> nzbget duplicate donor injector)
+After=network-online.target nzbget.service
+Wants=network-online.target
+
+[Service]
+User=nzbget
+Group=nzbget
+EnvironmentFile=/etc/nzbget-dupe-proxy.env
+ExecStart=/usr/bin/python3 -u /opt/nzbget-dupe-proxy/nzbget_dupe_proxy.py
+StateDirectory=nzbget-dupe-proxy
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
