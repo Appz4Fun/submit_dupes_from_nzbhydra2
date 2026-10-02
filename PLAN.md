@@ -87,6 +87,31 @@ fetched first.
 
 ---
 
+## Design change (2026-10-02, after live dry run + user direction)
+
+The live dry run showed that the spec's byte/count verify rule rejects real reposts. For example,
+`...REMUX-FraMeSToR` was posted as 8 named files (4,800,889,847 bytes) and again as 20 obfuscated 7z
+volumes (4,801,118,079 bytes). The rule also misses postings that carry extra par2 (+4%). Indexer
+sizes are unreliable too: nzb.life and nzbplanet list 4.8 GB but serve an 8.98 GB posting.
+
+The user's direction:
+- "exact file name ±20% should be a potential dupe";
+- "potential dupes can be off by a lot of GBs";
+- "parse with PTT to find the same group, audio, res, HDR...".
+
+New rules:
+- **Candidate:** `same_release(primary_title, hydra_title)` using vendored PTT. Title, S/E and
+  repack/proper must be equal, and the group must be equal. COMPAT fields must not conflict
+  (token-set subset). Size is not a filter; `SIZE_TOLERANCE` defaults to 0 (off).
+- **NZB check:** reject the same message-ID set. Reject when the largest inner file has a readable
+  name and is not `same_release` with the primary title.
+- **Ranking:** distance from the primary's bytes, then grabs, then date.
+- **Grouping** ("send selected"): by `same_release` of the stored primary title.
+- **Byte-level identity** is left to nzbget's DupeArticleFallback probe (≥16 KiB compare) before
+  any donor data is used.
+
+The `verify()` byte/count rule is removed.
+
 ## File Structure
 
 | File | Responsibility |

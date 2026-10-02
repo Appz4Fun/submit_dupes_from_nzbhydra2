@@ -1,18 +1,7 @@
 import pytest
 
-from nzbget_dupe_proxy import (NzbInfo, Result, candidate_ok, mask, normalize_title, parse_nzb,
-                               short_query, verify)
+from nzbget_dupe_proxy import mask, normalize_title, parse_nzb, readable, same_release, short_query
 from tests.fakes import make_nzb
-
-
-def info(files, total, names=(), ids=None):
-    ids = frozenset(ids if ids is not None else ["%d-%d" % (files, total)])
-    return NzbInfo(files=files, total_bytes=total, filenames=frozenset(names), poster="p",
-                   message_ids=ids, meta={})
-
-
-def result(title, size):
-    return Result(title=title, link="http://h/getnzb/1", size=size, grabs=0, date=0.0, indexer="i")
 
 
 def test_normalize_title():
@@ -46,31 +35,38 @@ def test_parse_nzb_malformed():
         parse_nzb(b"<nzb></nzb>")
 
 
-def test_verify_size_and_count():
-    p = info(10, 1000, {"a", "b"})
-    assert verify(p, info(11, 1005, {"x"}))
-    assert not verify(p, info(20, 1005, {"x"}))
-    assert not verify(p, info(10, 1020, {"x"}))
+LUC = "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR"
 
 
-def test_verify_shared_filenames():
-    p = info(10, 1000, {"a", "b"})
-    assert verify(p, info(20, 1500, {"a", "b", "c"}))
-    assert not verify(p, info(20, 1500, {"c", "d"}))
+def test_same_release_ignores_formatting_and_size():
+    assert same_release(LUC, "Lucifer S02E14 Candy Morningstar 1080p DTS-HD MA 5 1 AVC REMUX-FraMeSToR")
+    assert same_release(LUC, "lucifer.s02e14.candy.morningstar.1080p.dts-hd.ma.5.1.avc.remux-framestor.mkv")
 
 
-def test_candidate_ok_title_and_size():
-    p = "Lucifer.S02E14.1080p.WEB.H264-GRP"
-    assert candidate_ok(p, 1000, result("Lucifer.S02E14.1080p.WEB.H264-OTHER", 1010), 0.02)
-    assert candidate_ok(p, 1000, result("lucifer s02e14 1080p web h264 grp", 1019), 0.02)
-    assert not candidate_ok(p, 1000, result("Lucifer.S02E14.1080p.WEB.H264-OTHER", 1100), 0.02)
-    assert not candidate_ok(p, 1000, result("Totally Different Show", 1000), 0.02)
+def test_same_release_rejects_other_group_res_episode_repack_audio():
+    assert not same_release(LUC, LUC.replace("FraMeSToR", "EPSiLON"))
+    assert not same_release(LUC, LUC.replace("1080p", "2160p"))
+    assert not same_release(LUC, LUC.replace("S02E14", "S02E15"))
+    assert not same_release(LUC, LUC.replace("1080p", "REPACK.1080p"))
+    assert not same_release(LUC, LUC.replace("DTS-HD.MA.5.1", "DDP5.1"))
+    assert not same_release("Movie.2020.1080p.BluRay.x264-GRP", "Movie.2021.1080p.BluRay.x264-GRP")
+    assert not same_release("Show.S01E01.1080p.NF.WEB-DL.DDP5.1.H.264-GRP", "Show.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP")
 
 
-def test_candidate_ok_requires_same_episode_and_year():
-    assert not candidate_ok("Lucifer.S02E14.1080p.WEB.H264-GRP", 1000, result("Lucifer.S02E15.1080p.WEB.H264-GRP", 1000), 0.02)
-    assert not candidate_ok("Movie.2020.1080p.BluRay.x264-GRP", 1000, result("Movie.2021.1080p.BluRay.x264-GRP", 1000), 0.02)
-    assert candidate_ok("Lucifer.S02E14.1080p.WEB.H264-GRP", 1000, result("Lucifer.S02E14.2016.1080p.WEB.H264-GRP", 1000), 0.02)
+def test_same_release_tolerates_missing_attributes_but_requires_group():
+    assert same_release(LUC, "Lucifer.S02E14.1080p.BluRay.REMUX.AVC-FraMeSToR")   # fewer tags, compatible
+    assert not same_release(LUC, "Lucifer.S02E14.1080p.REMUX")                    # no group
+
+
+def test_readable_release_name():
+    assert readable("Lucifer.S02E14.1080p.WEB.H264-GRP.mkv")
+    assert not readable("53a9sd8antphskzkulcik6yrrktj1qft.7z.001")
+    assert not readable("e630b420289687dc3c66cc3274207902.part01.rar")
+
+
+def test_parse_nzb_main_name_is_largest_file():
+    i = parse_nzb(make_nzb([("small.nfo", [10]), ("big.mkv", [100, 100]), ("mid.par2", [50])]))
+    assert i.main_name == "big.mkv"
 
 
 def test_mask():
@@ -96,9 +92,3 @@ def test_parse_nzb_accepts_standard_doctype():
         b"\n<nzb", b'\n<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">\n<nzb', 1)
     assert parse_nzb(nzb).files == 1
 
-
-def test_verify_without_count_check():
-    p = info(8, 1000, {"a"})
-    assert not verify(p, info(20, 1000, {"x"}))
-    assert verify(p, info(20, 1000, {"x"}), check_count=False)
-    assert not verify(p, info(20, 1040, {"x"}), check_count=False)

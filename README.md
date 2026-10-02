@@ -32,19 +32,30 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      identifies the posting.
   2. Search Hydra by full title and by a short title (`lucifer s02e14 1080p`). If the NZB carries an
      imdb/tvdb meta tag, also search by that id. Each search uses `limit=100`.
-  3. Keep results whose size is within `SIZE_TOLERANCE` (2%) and that have the same episode/year. The
-     title must also match normally or share at least 50% of its tokens.
-  4. Fetch candidates, at most `3 x MAX_DONORS`, 4 at a time. One posting of each distinct size goes
-     first, then the rest by grabs.
-  5. Accept a candidate if either holds:
-     - total bytes within 1% **and** file count within ±10%;
-     - at least 50% of file names are shared.
-  6. Reject a candidate whose message-ID set equals the primary's, or that of a donor already
-     accepted. Such a candidate is the same posting from another indexer.
-  7. Append up to `MAX_DONORS` donors, ranked by grabs then age. Each gets the same DupeKey, score
-     90, 89, …, the same category, and `AddPaused=false`. nzbget has `DupeCheck=yes`, so it moves
-     them straight to history as dupe backups. That makes them donors, and also re-download
-     candidates if the primary fails.
+  3. Keep results that are the **same release by name**. Both names are parsed with
+     [PTT](https://github.com/dreulavelle/PTT), which is vendored under `vendor/ptt`. Extensions,
+     `.partNN.rar`/`.7z.001` suffixes and junk tags such as `-xpost` are stripped first. To match:
+     - title, season/episode and REPACK/PROPER must be equal;
+     - the **release group** must be equal;
+     - resolution, source, codec, bit depth, HDR, audio, channels, network and edition must not
+       conflict. A value missing on one side is fine.
+
+     Size is **not** a filter: reposts of one release can differ by GBs, mostly because of par2 and
+     packaging. `SIZE_TOLERANCE` can add a cap.
+  4. Fetch candidates, at most `3 x MAX_DONORS`, 4 at a time. The closest size goes first, then more
+     grabs, and one posting per distinct size comes before repeats.
+  5. Reject a candidate if either holds:
+     - its message-ID set equals the primary's, or that of a donor already accepted (the same posting
+       from another indexer);
+     - its largest file has a readable name that PTT says is **another release** (for example 720p
+       inside a "1080p" listing). Obfuscated inner names are accepted on the strength of the title.
+  6. Append up to `MAX_DONORS` donors, ranked closest size first, then grabs, then age. Each gets the
+     same DupeKey, score 90, 89, …, the same category, and `AddPaused=false`. nzbget has
+     `DupeCheck=yes`, so it moves them straight to history as dupe backups. That makes them donors,
+     and also re-download candidates if the primary fails.
+- **The real content check is nzbget's.** Before DupeArticleFallback uses any donor bytes, it fetches
+  probe articles and compares at least 16 KiB of data. A donor whose name matches but whose content
+  differs only costs a few probe articles; it cannot corrupt the download.
 - **Idempotency.** `STATE_DIR/state.json` remembers which postings (message-ID fingerprints) went
   out under each key, so the same posting is never sent twice. With Hydra's "send selected", each
   ticked row arrives as its own append within 10 minutes:
@@ -56,7 +67,7 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 - **Logging.** Logs go to journald, with one INFO summary line per append:
 
   ```
-  append key=dupes:... nzbid=123 title=... results=100 candidates=9 verified=3 added=3 rejected={'fetch': 2, 'mismatch': 3, 'same-posting': 1} time=6.2s
+  append key=dupes:... nzbid=123 title=... results=100 candidates=9 verified=3 added=3 rejected={'fetch': 2, 'other-release': 1, 'same-posting': 1} time=6.2s
   ```
 
   apikeys and passwords are masked.
@@ -72,8 +83,7 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `HYDRA_URL` | (none) | NZBHydra2 base URL, e.g. `http://127.0.0.1:5076` |
 | `HYDRA_APIKEY` | (none) | Hydra API key |
 | `MAX_DONORS` | `8` | max donors per append |
-| `SIZE_TOLERANCE` | `0.02` | Hydra size pre-filter (fraction) |
-| `VERIFY_COUNT` | `true` | `false` drops the ±10% file-count clause, so a same-size repost with different packaging is accepted |
+| `SIZE_TOLERANCE` | `0` | `0` = size is not a filter; for example `0.2` skips Hydra results more than 20% off |
 | `STATE_DIR` | `/var/lib/nzbget-dupe-proxy` | state file location |
 | `ENABLED` | `true` | `false` = pure pass-through (kill switch) |
 | `DRY_RUN` | `0` | `1` = discover and log donors, append only the primary (also `--dry-run`) |
@@ -143,9 +153,9 @@ sudo rm -rf /opt/nzbget-dupe-proxy /etc/systemd/system/nzbget-dupe-proxy.service
 
 - Each candidate fetch counts as a grab at that indexer, so fetches are capped at `3 x MAX_DONORS`.
   Indexers that are over their grab limit return 403, which is counted as `rejected: fetch`.
-- The verify rule is strict. A repost of the same release that is packaged differently has about the
-  same bytes but a different file count, for example 7z versus rar, or 20 versus 8 volumes. Unless it
-  shares file names, the rule rejects it as `mismatch`. nzbget's cross-pack repair could use some of
-  those postings.
+- Release identity is name-based. If an indexer lists a posting under a renamed or obfuscated title,
+  it cannot be matched, because Hydra's title is the only signal available before fetching.
+- Possible phase 2: probe the first article of each candidate over NNTP and read the container
+  header, the inner file name and the size.
 - Donor `.nzb` files must stay on disk for nzbget to use them. That needs `NzbCleanupDisk=no` and
   `KeepHistory` greater than 0; both are already set on this server.

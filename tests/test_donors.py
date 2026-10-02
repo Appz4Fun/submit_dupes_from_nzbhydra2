@@ -34,7 +34,7 @@ def summary(caplog):
 
 def test_primary_gets_dupekey_and_returns_before_discovery(proxy, nzbget, hydra):
     hydra.delay = 2.0
-    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="r"))
+    hydra.add("Show S01E01 1080p WEB H264-GRP", release(TITLE, prefix="r"))
     t0 = time.time()
     resp = append(proxy, primary(), wait=False, category="Series")
     assert time.time() - t0 < 1.0
@@ -55,22 +55,39 @@ def test_primary_response_bytes_unchanged(proxy, nzbget):
     assert json.loads(resp)["id"] == "406397322"
 
 
-def test_repost_with_other_title_same_size_accepted_with_donor_params(proxy, nzbget, hydra):
-    donor = release(TITLE, prefix="r")
-    hydra.add("Show S01E01 1080p WEB H264-OTHER", donor, grabs=5)
+def test_repost_other_formatting_and_size_accepted_with_donor_params(proxy, nzbget, hydra):
+    donor = release(TITLE, prefix="r", n_files=19)          # +90% bytes: size is not a filter
+    hydra.add("Show S01E01 1080p WEB H264-GRP", donor, grabs=5)
     append(proxy, primary(), category="Series")
     (d,) = donors(nzbget)
     p = d["params"]
-    assert p[0] == "Show S01E01 1080p WEB H264-OTHER.nzb"
+    assert p[0] == "Show S01E01 1080p WEB H264-GRP.nzb"
     assert base64.b64decode(p[1]) == donor
     assert p[2:] == ["Series", 0, False, False, KEY, 90, "SCORE", []]
     assert d["path"] == "/jsonrpc" and d["auth"] == basic(*AUTH)
 
 
-def test_same_title_wrong_size_never_fetched(proxy, nzbget, hydra):
-    hydra.add(TITLE, release(TITLE, prefix="w", n_files=13))
+def test_other_group_resolution_or_episode_never_fetched(proxy, nzbget, hydra):
+    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="a"))
+    hydra.add("Show.S01E01.720p.WEB.H264-GRP", release(TITLE, prefix="b"))
+    hydra.add("Show.S01E02.1080p.WEB.H264-GRP", release(TITLE, prefix="c"))
     append(proxy, primary())
     assert donors(nzbget) == [] and hydra.fetches == []
+
+
+def test_size_tolerance_cap_when_set(make_proxy, nzbget, hydra):
+    p = make_proxy(size_tolerance=0.2)
+    hydra.add(TITLE, release(TITLE, prefix="r", n_files=14))   # +40%
+    append(p, primary())
+    assert hydra.fetches == []
+
+
+def test_inner_filename_of_other_release_rejected(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, release("Show.S01E01.720p.WEB.H264-GRP", prefix="r"))
+    append(proxy, primary())
+    assert donors(nzbget) == []
+    assert "other-release" in summary(caplog)
 
 
 def test_identical_message_ids_rejected(proxy, nzbget, hydra, caplog):
@@ -94,12 +111,18 @@ def test_obfuscated_filenames_same_size_accepted(proxy, nzbget, hydra):
     assert len(donors(nzbget)) == 1
 
 
-def test_different_packaging_same_bytes_wrong_count_rejected(proxy, nzbget, hydra, caplog):
-    caplog.set_level(logging.INFO)
-    hydra.add(TITLE, release("x", prefix="q", n_files=20, segs_per_file=10))  # same bytes, 20 files, no shared names
+def test_repackaged_repost_accepted(proxy, nzbget, hydra):
+    hydra.add(TITLE, release("x", prefix="q", n_files=20, segs_per_file=10, obfuscate=True))  # 7z-style, 20 files
     append(proxy, primary())
-    assert donors(nzbget) == []
-    assert "mismatch" in summary(caplog)
+    assert len(donors(nzbget)) == 1
+
+
+def test_closest_size_ranked_first(make_proxy, nzbget, hydra):
+    p = make_proxy(max_donors=1)
+    hydra.add(TITLE, release(TITLE, prefix="far", n_files=15), grabs=100)
+    hydra.add(TITLE, release(TITLE, prefix="near"), grabs=1)
+    append(p, primary())
+    assert base64.b64decode(donors(nzbget)[0]["params"][1]) == release(TITLE, prefix="near")
 
 
 def test_max_donors_cap_scores_and_ranking(make_proxy, nzbget, hydra):
@@ -138,16 +161,16 @@ def test_queries_title_short_title_and_imdb(proxy, hydra):
 
 def test_send_selected_collapses_to_one_key_without_resending(proxy, nzbget, hydra):
     donor = release(TITLE, prefix="r")
-    hydra.add(TITLE + "-OTHER", donor)
+    hydra.add("Show S01E01 1080p WEB H264-GRP", donor)
     append(proxy, primary())
     assert len(nzbget.appends) == 2
     n_queries = len(hydra.queries)
     # Hydra "send selected": the donor row arrives as its own append -> already sent, existing NZBID returned
-    resp = append(proxy, donor, title="Show.S01E01.1080p.WEB.H264-GRP-OTHER", rid=5)
+    resp = append(proxy, donor, title="Show S01E01 1080p WEB H264-GRP", rid=5)
     assert len(nzbget.appends) == 2
     assert resp == {"version": "1.1", "id": 5, "result": nzbget.appends[1]["id"]}
     # a third matching posting not seen before joins the same key; no second discovery round
-    append(proxy, release(TITLE, prefix="z"), title="Show.S01E01.1080p.WEB.H264-ZZZ")
+    append(proxy, release(TITLE, prefix="z", n_files=12), title="Show.S01E01.1080p.WEB.H264-GRP-xpost")
     assert len(nzbget.appends) == 3
     assert nzbget.appends[2]["params"][6] == KEY
     assert len(hydra.queries) == n_queries
@@ -214,17 +237,17 @@ def test_deadline_stops_late_donors(make_proxy, nzbget, hydra, caplog):
 def test_dry_run_logs_donors_without_appending(make_proxy, nzbget, hydra, caplog):
     caplog.set_level(logging.INFO)
     p = make_proxy(dry_run="1")
-    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="r"))
+    hydra.add("Show S01E01 1080p WEB H264-GRP", release(TITLE, prefix="r"))
     append(p, primary())
     assert len(nzbget.appends) == 1
     msgs = " ".join(r.getMessage() for r in caplog.records)
-    assert "DRY-RUN" in msgs and "Show.S01E01.1080p.WEB.H264-OTHER" in msgs
+    assert "DRY-RUN" in msgs and "Show S01E01 1080p WEB H264-GRP" in msgs
     assert "dry_run" in summary(caplog)
 
 
 def test_summary_line(proxy, hydra, caplog):
     caplog.set_level(logging.INFO)
-    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="r"))
+    hydra.add("Show S01E01 1080p WEB H264-GRP", release(TITLE, prefix="r"))
     append(proxy, primary())
     s = summary(caplog)
     for part in ("key=" + KEY, "nzbid=1001", "candidates=1", "verified=1", "added=1", "rejected="):
@@ -240,15 +263,8 @@ def test_donor_verified_by_deadline_is_still_added(make_proxy, nzbget, hydra):
     assert len(donors(nzbget)) == 1
 
 
-def test_verify_count_false_accepts_repackaged_repost(make_proxy, nzbget, hydra):
-    p = make_proxy(verify_count="false")
-    hydra.add(TITLE, release("x", prefix="q", n_files=20, segs_per_file=10))  # same bytes, 20 files, no shared names
-    append(p, primary())
-    assert len(donors(nzbget)) == 1
-
-
 def test_summary_omits_zero_counters(proxy, hydra, caplog):
     caplog.set_level(logging.INFO)
-    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="r"))
+    hydra.add("Show S01E01 1080p WEB H264-GRP", release(TITLE, prefix="r"))
     append(proxy, primary())
     assert "rejected={}" in summary(caplog)

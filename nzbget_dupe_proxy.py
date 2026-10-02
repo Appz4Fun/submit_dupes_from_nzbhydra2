@@ -3,8 +3,10 @@
 
 Requests are forwarded verbatim to nzbget; JSON-RPC `append` gets a DupeKey, then a background worker finds other
 postings of the same release via Hydra and appends them under that DupeKey with lower DupeScores, as donors for
-nzbget's DupeArticleFallback. Python 3 stdlib only."""
+nzbget's DupeArticleFallback. "Same release" is decided by PTT-parsed release names (title, episode, group,
+resolution, source, codec, audio, HDR, ...), not by size. Python 3 stdlib + vendored PTT (pure Python)."""
 import base64
+import functools
 import hashlib
 import json
 import logging
@@ -24,11 +26,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree as ET
 from xml.parsers import expat
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
+from ptt import parse_title  # noqa: E402  (vendored PTT, MIT)
+
 log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
 STATE_TTL = 30 * 86400   # s: forget groups after this
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
-EXT_RE = re.compile(r"\.(nzb|mkv|mp4|m4v|avi|ts|rar|par2|7z|zip|nfo|sfv)$", re.I)
+EXT_RE = re.compile(r"\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|\d{3}|nzb|mkv|mp4|m4v|avi|ts|"
+                    r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)$", re.I)
 JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv\w*|buymore|"
                      r"chamele0n|sample|repost))+$", re.I)
 MARKER_RE = re.compile(r"^(s\d{1,3}e\d{1,4}|(19|20)\d\d)$")      # episode / year: must match
@@ -42,11 +48,10 @@ class Config:
     hydra_url: str = ""
     hydra_apikey: str = ""
     max_donors: int = 8
-    size_tolerance: float = 0.02
+    size_tolerance: float = 0.0  # > 0: skip Hydra results whose size differs more than this fraction
     state_dir: str = "/var/lib/nzbget-dupe-proxy"
     enabled: bool = True
     dry_run: bool = False
-    verify_count: bool = True  # false: accept repackaged reposts (same bytes, different file count)
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -62,11 +67,58 @@ class Config:
         return c
 
 
+def clean_name(name):
+    """Release name without extensions / volume suffixes, [tags] and indexer junk ('-xpost')."""
+    name, prev = name.strip(), None
+    while name != prev:
+        prev, name = name, EXT_RE.sub("", name)
+    return JUNK_RE.sub("", re.sub(r"\[[^\]]*\]|\{[^}]*\}", " ", name).strip()).strip(" ._-")
+
+
 def normalize_title(name):
-    """Lowercase, drop extension / [tags] / indexer junk, separators -> single dots."""
-    name = EXT_RE.sub("", EXT_RE.sub("", name.strip()))
-    name = JUNK_RE.sub("", re.sub(r"\[[^\]]*\]|\{[^}]*\}", " ", name).strip())
-    return re.sub(r"[\s._\-()+,]+", ".", name.lower()).strip(".")
+    """Lowercase clean name, separators -> single dots."""
+    return re.sub(r"[\s._\-()+,]+", ".", clean_name(name).lower()).strip(".")
+
+
+COMPAT = ("resolution", "quality", "codec", "bit_depth", "hdr", "audio", "channels", "network", "edition")
+
+
+def _tokens(v):
+    v = " ".join(map(str, v)) if isinstance(v, list) else str(v or "")
+    return frozenset(re.findall(r"[a-z0-9]+", v.lower()))
+
+
+@functools.lru_cache(maxsize=4096)
+def release_attrs(name):
+    """PTT attributes of a release/file name, normalized for comparison (lowercase token sets)."""
+    try:
+        a = parse_title(clean_name(name))
+    except Exception:  # PTT on garbage input: treat as unreadable
+        a = {}
+    out = {k: _tokens(a.get(k)) for k in COMPAT}
+    out.update(title=re.sub(r"[^a-z0-9]", "", str(a.get("title", "")).lower()), group=str(a.get("group") or "").lower(),
+               seasons=tuple(a.get("seasons") or ()), episodes=tuple(a.get("episodes") or ()), year=a.get("year"),
+               repack=bool(a.get("repack")), proper=bool(a.get("proper")))
+    return out
+
+
+def readable(name):
+    """Does a (file) name carry release info, i.e. is it not obfuscated?"""
+    a = release_attrs(name)
+    return bool(a["title"] and (a["group"] or a["resolution"]))
+
+
+def same_release(a_name, b_name):
+    """Same title/episode/year, same group, same repack/proper, and no conflicting quality attributes."""
+    a, b = release_attrs(a_name), release_attrs(b_name)
+    if not a["group"]:  # nothing to anchor on: require the same normalized name
+        return normalize_title(a_name) == normalize_title(b_name)
+    if (a["title"], a["group"], a["seasons"], a["episodes"], a["repack"], a["proper"]) != \
+            (b["title"], b["group"], b["seasons"], b["episodes"], b["repack"], b["proper"]):
+        return False
+    if a["year"] and b["year"] and a["year"] != b["year"]:
+        return False
+    return all(not a[k] or not b[k] or a[k] <= b[k] or b[k] <= a[k] for k in COMPAT)
 
 
 def short_query(title):
@@ -87,6 +139,7 @@ class NzbInfo:
     poster: str
     message_ids: frozenset
     meta: dict
+    main_name: str = ""  # name of the largest file
 
     @property
     def fingerprint(self):
@@ -109,7 +162,7 @@ def safe_xml(data):
 
 def parse_nzb(data):
     """Parse NZB bytes into an NzbInfo; ValueError if malformed or empty."""
-    files, names, ids, total, poster, meta = 0, set(), set(), 0, "", {}
+    files, sizes, ids, poster, meta = 0, {}, set(), "", {}
     for el in safe_xml(data).iter():
         tag = el.tag.rsplit("}", 1)[-1]
         if tag == "meta" and el.get("type"):
@@ -117,32 +170,23 @@ def parse_nzb(data):
         elif tag == "file":
             files += 1
             poster = poster or el.get("poster", "")
-            subj = el.get("subject", "")
-            m = re.search(r'"([^"]+)"', subj)
-            names.add((m.group(1) if m else subj).strip().lower())
-        elif tag == "segment":
-            total += int(el.get("bytes") or 0)
-            ids.add((el.text or "").strip())
+            m = re.search(r'"([^"]+)"', el.get("subject", ""))
+            name = (m.group(1) if m else el.get("subject", "")).strip()
+            for seg in el.iter():
+                if seg.tag.rsplit("}", 1)[-1] == "segment":
+                    sizes[name] = sizes.get(name, 0) + int(seg.get("bytes") or 0)
+                    ids.add((seg.text or "").strip())
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
-    return NzbInfo(files, total, frozenset(names), poster, frozenset(ids), meta)
-
-
-def verify(p, c, check_count=True):
-    """Same release? (bytes within 1% and file count within 10%) or >= 50% filenames shared.
-    check_count=False drops the file-count clause: reposts are often repackaged (rar <-> 7z, volume size)."""
-    size_ok = abs(c.total_bytes - p.total_bytes) <= 0.01 * p.total_bytes
-    count_ok = not check_count or abs(c.files - p.files) <= 0.10 * p.files
-    shared = len(p.filenames & c.filenames) / max(1, min(len(p.filenames), len(c.filenames)))
-    return (size_ok and count_ok) or shared >= 0.5
+    return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
+                   max(sizes, key=sizes.get))
 
 
 def candidate_ok(primary_title, primary_bytes, r, tol):
-    """Hydra result worth fetching: size close, same episode/year, and similar title."""
-    if not primary_bytes or abs(r.size - primary_bytes) > tol * primary_bytes:
+    """Hydra result worth fetching: same release by name; size only matters if a tolerance is set."""
+    if tol and primary_bytes and abs(r.size - primary_bytes) > tol * primary_bytes:
         return False
-    p, c = (set(normalize_title(t).split(".")) for t in (primary_title, r.title))
-    return not {t for t in p if MARKER_RE.match(t)} - c and len(p & c) >= 0.5 * len(p)
+    return same_release(primary_title, r.title)
 
 
 def mask(text):
@@ -153,7 +197,7 @@ def mask(text):
 
 
 class State:
-    """JSON file {key: {t, files, bytes, names, fps: {message-id fingerprint: nzbid}}}."""
+    """JSON file {key: {t, title, fps: {message-id fingerprint: nzbid}}}."""
 
     def __init__(self, state_dir):
         self.path = os.path.join(state_dir, "state.json")
@@ -175,23 +219,20 @@ class State:
         except OSError as e:
             log.error("cannot write state %s: %s", self.path, e)
 
-    def group_for(self, info, now, check_count=True):
-        """Key of a recent group whose primary looks like the same release as `info`."""
+    def group_for(self, title, now):
+        """Key of a recent group whose primary is the same release as `title`."""
         for key, g in sorted(self.data.items(), key=lambda kv: -kv[1]["t"]):
-            if now - g["t"] < GROUP_WINDOW and g["bytes"] and verify(
-                    NzbInfo(g["files"], g["bytes"], frozenset(g["names"]), "", frozenset(), {}), info, check_count):
+            if now - g["t"] < GROUP_WINDOW and g.get("title") and same_release(g["title"], title):
                 return key
         return None
 
     def sent(self, key, fp):
         return self.data.get(key, {}).get("fps", {}).get(fp)
 
-    def record(self, key, fp, nzbid, info=None, touch=False):
-        g = self.data.setdefault(key, {"t": time.time(), "files": 0, "bytes": 0, "names": [], "fps": {}})
+    def record(self, key, fp, nzbid, title=None, touch=False):
+        g = self.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
         if touch:
-            g["t"] = time.time()
-        if info and (touch or not g["bytes"]):
-            g.update(files=info.files, bytes=info.total_bytes, names=sorted(info.filenames))
+            g.update(t=time.time(), title=title)
         g["fps"][fp] = nzbid
         self.save()
 
@@ -266,7 +307,7 @@ class Proxy:
         except (ValueError, TypeError) as e:
             log.info("append %s: content is not an NZB (%s); no donor discovery", title, e)
         with self.state.lock:
-            key = params[6] or (info and self.state.group_for(info, t0, self.cfg.verify_count)) or "dupes:" + normalize_title(title)
+            key = params[6] or self.state.group_for(title, t0) or "dupes:" + normalize_title(title)
             g = self.state.data.get(key)
             fresh = bool(g) and t0 - g["t"] < GROUP_WINDOW
             old = info and fresh and self.state.sent(key, info.fingerprint)
@@ -278,7 +319,7 @@ class Proxy:
             status, rbody, ctype = self.forward(path, json.dumps(req).encode(), headers)
             nzbid = rpc_result(status, rbody)
             if info and nzbid > 0:
-                self.state.record(key, info.fingerprint, nzbid, info, touch=not fresh)
+                self.state.record(key, info.fingerprint, nzbid, title, touch=not fresh)
         if nzbid <= 0 or not info or fresh or not self.cfg.hydra_url:
             why = "joined existing group" if fresh else "no discovery"
             log.info("append key=%s nzbid=%s title=%s: %s", key, nzbid, title, why)
@@ -342,6 +383,7 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
+        dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
             for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info)]:
@@ -353,7 +395,7 @@ class Proxy:
                 except Exception as e:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
             cands = sorted((r for r in results.values() if r.link and candidate_ok(
-                title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (-r.grabs, -r.date))
+                title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             # one posting of each distinct size first (same size is often the same posting), then the rest
             first_of_size = {r.size: r for r in reversed(cands)}
             order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)[:3 * cfg.max_donors]
@@ -368,8 +410,8 @@ class Proxy:
                 for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk, [deadline] * len(chunk))):
                     if reason != "ok":
                         stats[reason] += 1
-                    elif not verify(info, ci, cfg.verify_count):
-                        stats["mismatch"] += 1
+                    elif readable(ci.main_name) and not same_release(title, ci.main_name):
+                        stats["other-release"] += 1
                     elif ci.fingerprint in fps:
                         stats["same-posting"] += 1
                     else:
@@ -377,7 +419,7 @@ class Proxy:
                         verified.append((r, data, ci))
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
-        verified.sort(key=lambda v: (-v[0].grabs, -v[0].date))
+        verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
         if len(verified) > cfg.max_donors:
             stats["over-cap"] = len(verified) - cfg.max_donors
         added = 0
