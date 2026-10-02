@@ -191,3 +191,56 @@ def test_dupescore_unique_and_below_primary(make_proxy, nzbget, hydra):
     post(p.url + "/jsonrpc", append_body(release(TITLE, prefix="p"), title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
     assert [a["params"][7] for a in nzbget.appends[1:]] == [90, 89, 88, 87]
+
+
+def _setup(nzbget, hydra, alive_ids, donors, prim=None):
+    prim = prim or release(TITLE, prefix="p")
+    news = FakeNntp(article_ids(prim) + list(alive_ids))
+    nzbget.config_entries = news.config(1)
+    for d in donors:
+        hydra.add(TITLE, d)
+    return prim
+
+
+def test_probe_only_drops_donors_with_nothing_found(make_proxy, nzbget, hydra):
+    donor = release(TITLE, prefix="d")
+    full = dh.sample(article_ids(donor), 2.0)                      # 20 ids; the probe is full[:10]
+    prim = _setup(nzbget, hydra, full[:4] + full[10:], [donor])    # probe 4/10, full sample 14/20 = 70%
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 2
+
+
+def test_bad_server_config_skips_health_but_keeps_donors(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim = _setup(nzbget, hydra, [], [release(TITLE, prefix="d")])
+    nzbget.config_entries = [{"Name": "Server1.Host", "Value": "h"}, {"Name": "Server1.Port", "Value": "abc"}]
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 2
+    assert "donor discovery crashed" not in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_failed_rescore_is_reported_not_claimed(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    donor = release(TITLE, prefix="d")
+    probe = set(dh.sample(article_ids(donor), 100)[:10])
+    prim = _setup(nzbget, hydra, probe, [donor])
+    nzbget.editqueue_result = False
+    p = make_proxy(health_percent=100)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    msgs = " ".join(r.getMessage() for r in caplog.records)
+    assert "rescored donor" not in msgs and "could not rescore donor" in msgs
+
+
+def test_capped_run_keeps_fetching_past_dead_donors(make_proxy, nzbget, hydra):
+    dead = [release(TITLE, prefix="x%d" % i, extra_bytes=i) for i in range(5)]   # closest in size: fetched first
+    good = release(TITLE, prefix="g", n_files=11)
+    prim = _setup(nzbget, hydra, article_ids(good), dead + [good])
+    p = make_proxy(max_donors=2)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends[1:]] == [good]

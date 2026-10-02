@@ -106,3 +106,9 @@ def test_same_release_hdr_must_match_exactly():
     assert not same_release(a, "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.H.265-NTb")   # DV only
     assert same_release("Shrinking.S01E10.Closure.2160p.ATVP.WEB-DL.DDP5.1.DoVi.H.265-NTb",
                         "Shrinking S01E10 Closure 2160p ATVP WEB-DL DDP5 1 DV H 265-NTb")
+
+
+def test_codec_suffix_is_not_a_volume_suffix():
+    assert normalize_title("Movie.2020.1080p.WEB.DDP5.1.H.265") == "movie.2020.1080p.web.ddp5.1.h.265"
+    assert not same_release("Movie.2020.1080p.WEB.DDP5.1.H.264", "Movie.2020.1080p.WEB.DDP5.1.H.265")
+    assert normalize_title("Movie.2020.1080p.WEB-GRP.mkv.001") == "movie.2020.1080p.web.grp"

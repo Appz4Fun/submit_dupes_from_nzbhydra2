@@ -17,7 +17,7 @@ Push to `git@github.com:Appz4Fun/submit_dupes_from_nzbhydra2.git` as xbmc4lyfe.
 
 ## Project
 
-`nzbget-dupe-proxy`: a stdlib-only Python 3 HTTP proxy that sits between
+`nzbget-dupe-proxy`: a Python 3 HTTP proxy (stdlib + vendored pure-Python PTT/cyclops) that sits between
 NZBHydra2 and nzbget. It passes every request through to nzbget unchanged,
 except JSON-RPC `append`, where it gives the NZB a DupeKey and, in the
 background, finds other postings of the same release through Hydra and appends
@@ -26,7 +26,9 @@ See README.md (usage) and PLAN.md (design, Hydra protocol findings).
 
 ## Rules
 
-- Runtime code (`nzbget_dupe_proxy.py`) is Python 3 stdlib only. pytest is for tests only.
+- Runtime code (`nzbget_dupe_proxy.py`, `donor_health.py`) is Python 3 stdlib plus the vendored pure-Python
+  libraries under `vendor/` (PTT, cyclops). Nothing is pip-installed on the server; pytest is for tests only.
+  Edit vendored code only for compatibility fixes (see `vendor/README.md`).
 - TDD: write the failing test first (`tests/`), then the code. Run `.venv/bin/pytest -q` before every commit.
 - Never commit secrets. `.env` is gitignored; `.env.example` holds names only.
   Logs must mask apikeys and passwords.

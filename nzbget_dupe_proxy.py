@@ -34,8 +34,8 @@ log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
 STATE_TTL = 30 * 86400   # s: forget groups after this
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
-EXT_RE = re.compile(r"\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|\d{3}|nzb|mkv|mp4|m4v|avi|ts|"
-                    r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)$", re.I)
+EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
+                    r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
 JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv\w*|buymore|"
                      r"chamele0n|sample|repost))+$", re.I)
 MARKER_RE = re.compile(r"^(s\d{1,3}e\d{1,4}|(19|20)\d\d)$")      # episode / year: must match
@@ -56,7 +56,7 @@ class Config:
     health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
     health_connections: int = 8   # per news server (and <= half its nzbget Connections)
-    health_budget: float = 120.0  # s per health pass (probe of all donors / full sample of one donor)
+    health_budget: float = 120.0  # s per health pass (probe of all donors / full sample of up to 4 donors)
     fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
 class Proxy:
     def __init__(self, cfg):
         self.cfg, self.state = cfg, State(cfg.state_dir)
-        self.workers, self.server = [], None
+        self.workers, self.server, self.workers_lock = [], None, threading.Lock()
 
     def forward(self, path, body, headers, method="POST"):
         """Send a request to nzbget unchanged; returns (status, body, content-type)."""
@@ -372,7 +372,8 @@ class Proxy:
         else:
             t = threading.Thread(target=self._discover_safe, daemon=True,
                                  args=(key, title, info, params[2], path, headers.get("Authorization"), nzbid, t0))
-            self.workers = [w for w in self.workers if w.is_alive()] + [t]
+            with self.workers_lock:
+                self.workers = [w for w in self.workers if w.is_alive()] + [t]
             t.start()
         return status, rbody, ctype
 
@@ -448,9 +449,7 @@ class Proxy:
             if cfg.max_donors > 0:  # each fetch costs an indexer grab
                 order = order[:3 * cfg.max_donors]
             verified, postings = [], [info.message_ids]
-            for i in range(0, len(order), 4):
-                if len(verified) >= cfg.donor_cap:
-                    break
+            for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
                 if time.time() > deadline:
                     stats["deadline"] += len(order) - i
                     break
@@ -469,42 +468,47 @@ class Proxy:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
         servers = self.news_servers(path, auth, title) if cfg.health_percent and verified else []
-        groups = dict({ci.fingerprint: ci.message_ids for _, _, ci in verified}, primary=info.message_ids)
-        probe = self.health(servers, title, groups, full=False)
-        if probe:
-            log.info("health %s: primary alive=%s (probe) on %d server(s)", title, pct(probe["primary"].alive),
-                     len(servers))
+        probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False)
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
-        fast, slow = live[:n_fast], live[n_fast:]
         ranks, added, fast_ids = Ranks(), 0, {}
-        for v in fast:  # quick: probe-alive donors go to nzbget right away
+        for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v))
             donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
             added += donor_id != 0
             if donor_id > 0:
                 fast_ids[v[2].fingerprint] = (donor_id, score)
-        for i, v in enumerate(fast + slow):  # then every donor's full sample: refine fast ones, add the rest
-            if v in slow and added >= cfg.donor_cap:
-                stats["over-cap"] = len(fast + slow) - i
-                break
-            if not servers and v in fast:
-                continue
-            h = self.health(servers, title, {v[2].fingerprint: v[2].message_ids}, full=True)
-            if v[2].fingerprint in fast_ids:
-                self.rescore(path, auth, v, fast_ids[v[2].fingerprint], h, ranks, stats)
-            elif v in slow and not self.dead(v, h, stats, "full sample"):
-                donor_id = self.add_donor(key, category, path, auth, v, ranks.take(alive_of(h, v)), h, "checked",
-                                          stats)
-                added += donor_id != 0
+        # then full samples, 4 donors per connection pool: refine the fast donors' scores, add the rest
+        todo = [(v, True) for v in live[:n_fast] if servers] + [(v, False) for v in live[n_fast:]]
+        for i in range(0, len(todo), 4):
+            chunk = todo[i:i + 4]
+            groups = {v[2].fingerprint: v[2].message_ids for v, _ in chunk}
+            if i == 0:
+                groups["primary"] = info.message_ids
+            h = self.health(servers, title, groups, full=True)
+            if i == 0 and h:
+                log.info("health %s: primary alive=%s on %d server(s)", title, pct(h["primary"].alive), len(servers))
+            for v, was_fast in chunk:
+                if was_fast:
+                    if v[2].fingerprint in fast_ids:
+                        self.rescore(path, auth, v, fast_ids[v[2].fingerprint], h, ranks, stats)
+                elif added >= cfg.donor_cap:
+                    stats["over-cap"] += 1
+                elif not self.dead(v, h, stats, "full sample"):
+                    score = ranks.take(alive_of(h, v))
+                    added += self.add_donor(key, category, path, auth, v, score, h, "checked", stats) != 0
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
 
     def news_servers(self, path, auth, title):
-        servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
-                                                          self.cfg.health_connections, self.cfg.timeout)
+        try:
+            servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
+                                                              self.cfg.health_connections, self.cfg.timeout)
+        except (ValueError, TypeError, KeyError) as e:
+            log.warning("health check skipped for %s: unreadable news server config (%s)", title, type(e).__name__)
+            return []
         if not servers:
             log.info("health check skipped for %s: no active news servers in nzbget config", title)
         return servers
@@ -521,8 +525,12 @@ class Proxy:
             return {}
 
     def dead(self, v, health, stats, phase):
+        """Probe: dead only if nothing was found (10 articles are too few to judge a share). Full sample:
+        dead below DONOR_MIN_ALIVE."""
         h = health.get(v[2].fingerprint)
-        if h is None or h.alive is None or h.alive >= self.cfg.donor_min_alive:
+        if h is None or h.alive is None:
+            return False
+        if (h.present > 0) if phase == "probe" else (h.alive >= self.cfg.donor_min_alive):
             return False
         stats["dead"] += 1
         log.info("dropping dead donor %s [%s] after %s: alive=%s (%d of %d answered articles on no server, "
@@ -539,13 +547,20 @@ class Proxy:
         dead = h.alive < self.cfg.donor_min_alive
         ranks.release(old)
         new = 1 if dead else ranks.take(h.alive)
-        if dead:
-            stats["dead"] += 1
         alive = "DupeAlive=%s" % pct(h.alive)
         for kind in ("History", "Group"):  # donors normally sit in history as dupe backups
             if self.rpc_call(path, auth, "editqueue", [kind + "SetDupeScore", str(new), [donor_id]]):
                 self.rpc_call(path, auth, "editqueue", [kind + "SetParameter", alive, [donor_id]])
                 break
+        else:
+            ranks.release(new)
+            ranks.used.add(old)
+            stats["rescore"] += 1
+            log.warning("could not rescore donor nzbid=%d %s [%s]: keeps score %d, alive=%s", donor_id, v[0].title,
+                        v[0].indexer, old, pct(h.alive))
+            return
+        if dead:
+            stats["dead"] += 1
         log.info("rescored donor nzbid=%d %s [%s]: score %d -> %d, alive=%s (full sample%s)", donor_id, v[0].title,
                  v[0].indexer, old, new, pct(h.alive), ", dead" if dead else "")
 

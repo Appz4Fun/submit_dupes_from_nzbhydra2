@@ -46,7 +46,7 @@ class _NzbgetHandler(BaseHTTPRequestHandler):
         elif method == "editqueue":
             with o.lock:
                 o.edits.append(tuple(params))
-            result = True
+            result = o.editqueue_result
         else:
             result = {"version": "27.0", "writelog": True, "config": o.config_entries}.get(method, [])
         o.last_response = json.dumps({"version": "1.1", "id": req.get("id"), "result": result}, indent=1).encode()
@@ -71,6 +71,7 @@ class FakeNzbget:
         self.last_response = None
         self.config_entries = []
         self.edits = []
+        self.editqueue_result = True
         serve(_NzbgetHandler, self)
 
     def final_scores(self):
