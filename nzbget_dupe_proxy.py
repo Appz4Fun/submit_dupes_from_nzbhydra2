@@ -86,7 +86,8 @@ def normalize_title(name):
     return re.sub(r"[\s._\-()+,]+", ".", clean_name(name).lower()).strip(".")
 
 
-COMPAT = ("resolution", "quality", "codec", "bit_depth", "hdr", "audio", "channels", "network", "edition")
+COMPAT = ("resolution", "quality", "codec", "bit_depth", "audio", "channels", "network", "edition")
+EXACT = ("hdr",)  # a missing HDR tag means SDR, so HDR formats must match exactly
 
 
 def _tokens(v):
@@ -101,7 +102,7 @@ def release_attrs(name):
         a = parse_title(clean_name(name))
     except Exception:  # PTT on garbage input: treat as unreadable
         a = {}
-    out = {k: _tokens(a.get(k)) for k in COMPAT}
+    out = {k: _tokens(a.get(k)) for k in COMPAT + EXACT}
     out.update(title=re.sub(r"[^a-z0-9]", "", str(a.get("title", "")).lower()), group=str(a.get("group") or "").lower(),
                seasons=tuple(a.get("seasons") or ()), episodes=tuple(a.get("episodes") or ()), year=a.get("year"),
                repack=bool(a.get("repack")), proper=bool(a.get("proper")))
@@ -119,8 +120,8 @@ def same_release(a_name, b_name):
     a, b = release_attrs(a_name), release_attrs(b_name)
     if not a["group"]:  # nothing to anchor on: require the same normalized name
         return normalize_title(a_name) == normalize_title(b_name)
-    if (a["title"], a["group"], a["seasons"], a["episodes"], a["repack"], a["proper"]) != \
-            (b["title"], b["group"], b["seasons"], b["episodes"], b["repack"], b["proper"]):
+    strict = ("title", "group", "seasons", "episodes", "repack", "proper") + EXACT
+    if any(a[k] != b[k] for k in strict):
         return False
     if a["year"] and b["year"] and a["year"] != b["year"]:
         return False
@@ -483,8 +484,9 @@ class Proxy:
         if h is None or h.alive is None or h.alive >= self.cfg.donor_min_alive:
             return False
         stats["dead"] += 1
-        log.info("dropping dead donor %s [%s] after %s: alive=%s (%d/%d sampled articles on no server)",
-                 v[0].title, v[0].indexer, phase, pct(h.alive), h.missing, h.checked)
+        log.info("dropping dead donor %s [%s] after %s: alive=%s (%d of %d answered articles on no server, "
+                 "%d errors)", v[0].title, v[0].indexer, phase, pct(h.alive), h.answered - h.present, h.answered,
+                 h.error)
         return True
 
     def add_donor(self, key, category, path, auth, v, score, health, how, stats):

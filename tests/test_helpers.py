@@ -97,3 +97,12 @@ def test_parse_nzb_accepts_standard_doctype():
 def test_parse_nzb_main_name_skips_par2():
     i = parse_nzb(make_nzb([("abc.vol063-121.par2", [500]), ("Show.S01E01.1080p.WEB.H264-GRP.mkv", [100])]))
     assert i.main_name == "Show.S01E01.1080p.WEB.H264-GRP.mkv"
+
+
+def test_same_release_hdr_must_match_exactly():
+    a = "Shrinking.S02E06.2160p.ATVP.WEB-DL.DDPA5.1.HDR.DV.HEVC-NTb"
+    assert same_release(a, "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb")
+    assert not same_release(a, "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.H.265-NTb")      # SDR
+    assert not same_release(a, "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.H.265-NTb")   # DV only
+    assert same_release("Shrinking.S01E10.Closure.2160p.ATVP.WEB-DL.DDP5.1.DoVi.H.265-NTb",
+                        "Shrinking S01E10 Closure 2160p ATVP WEB-DL DDP5 1 DV H 265-NTb")

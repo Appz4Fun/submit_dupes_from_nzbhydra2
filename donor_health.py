@@ -50,7 +50,7 @@ def sample(ids, percent, minimum=20, maximum=300, seed=0):
     return random.Random(seed).sample(ids, k)
 
 
-MIN_KNOWN = 5  # definite (present/missing) answers needed before judging an NZB
+MIN_KNOWN = 5  # answered articles needed before judging an NZB
 
 
 @dataclass
@@ -61,10 +61,16 @@ class Health:
     error: int
 
     @property
+    def answered(self):
+        return self.present + self.missing + self.error
+
+    @property
     def alive(self):
-        """Present share of the definite answers; None if too few answers (errors, budget) to judge."""
-        known = self.present + self.missing
-        return self.present / known if known >= MIN_KNOWN else None
+        """Present share of all answered articles; None if too few answers (budget) to judge.
+
+        Errors count as not present: a live article still gets a 223 from some other server, while a
+        server that errors (e.g. a transient 451) would otherwise hide every dead article."""
+        return self.present / self.answered if self.answered >= MIN_KNOWN else None
 
 
 def _stat_all(servers, ids, status, deadline):
@@ -105,7 +111,7 @@ def check_many(servers, groups, percent=2.0, probe=10, budget=120.0, full=True):
         return {k: _tally(p, status) for k, p in probes.items()}
     for k, p in probes.items():
         h = _tally(p, status)
-        if h.present == 0 and h.missing >= MIN_KNOWN:
+        if h.present == 0 and h.answered >= MIN_KNOWN:
             samples[k] = p
     _stat_all(servers, [i for i in dict.fromkeys(i for f in samples.values() for i in f) if i not in status], status,
               deadline)

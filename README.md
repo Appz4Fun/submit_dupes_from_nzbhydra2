@@ -37,8 +37,9 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      `.partNN.rar`/`.7z.001` suffixes and junk tags such as `-xpost` are stripped first. To match:
      - title, season/episode and REPACK/PROPER must be equal;
      - the **release group** must be equal;
-     - resolution, source, codec, bit depth, HDR, audio, channels, network and edition must not
-       conflict. A value missing on one side is fine.
+     - the HDR format must be equal (`HDR.DV` = `DV.HDR`, but SDR, DV-only and DV+HDR all differ);
+     - resolution, source, codec, bit depth, audio, channels, network and edition must not conflict. A
+       value missing on one side is fine.
 
      Size is **not** a filter: reposts of one release can differ by GBs, mostly because of par2 and
      packaging. `SIZE_TOLERANCE` can add a cap.

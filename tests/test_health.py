@@ -88,9 +88,22 @@ def test_check_many_budget_leaves_unknown():
     assert res["x"].alive is None or res["x"].present + res["x"].missing < 50
 
 
-def test_alive_needs_enough_definite_answers():
-    assert dh.Health(300, 0, 1, 299).alive is None
-    assert dh.Health(300, 0, 5, 295).alive == 0.0
+def test_alive_counts_errors_as_not_present():
+    # a server erroring (e.g. transient 451) must not hide dead articles: present share of all answers
+    assert dh.Health(300, 0, 1, 299).alive == 0.0
+    assert dh.Health(300, 150, 0, 150).alive == 0.5
+    assert dh.Health(300, 10, 0, 0).alive == 1.0      # 290 unanswered (budget): judged on the 10 answers
+    assert dh.Health(300, 0, 2, 2).alive is None      # too few answers
+
+
+def test_erroring_server_does_not_make_dead_nzb_look_alive():
+    dead = ["d%d@x" % i for i in range(100)]
+    ok, broken = FakeNntp(), FakeNntp(password="right")
+    entries = [e if e["Name"] != "Server2.Password" else {"Name": e["Name"], "Value": "wrong"}  # auth fails:
+               for e in ok.config(1) + broken.config(2)]                                       # every STAT errors
+    servers = dh.servers_from_nzbget_config(entries)
+    h = dh.check_many(servers, {"d": dead}, percent=100, probe=10)["d"]
+    assert h.present == 0 and h.alive == 0.0
 
 
 def test_check_many_probe_only():
