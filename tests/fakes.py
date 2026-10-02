@@ -79,6 +79,7 @@ class _HydraHandler(BaseHTTPRequestHandler):
             return self._send(200, body)
         if self.path.startswith("/getnzb/"):
             o.fetches.append(self.path)
+            time.sleep(o.fetch_delay)
             it = o.items[int(self.path.split("/")[2].split("?")[0])]
             if it.status != 200:
                 return self._send(it.status, b"nope")
@@ -95,7 +96,7 @@ class _HydraHandler(BaseHTTPRequestHandler):
 class FakeHydra:
     def __init__(self):
         self.items, self.queries, self.fetches = [], [], []
-        self.delay = 0.0
+        self.delay = self.fetch_delay = 0.0
         serve(_HydraHandler, self)
 
     def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200):

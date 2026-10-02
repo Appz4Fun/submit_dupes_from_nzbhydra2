@@ -18,7 +18,7 @@ import time
 import urllib.parse
 import urllib.error
 import urllib.request
-from collections import Counter
+from collections import Counter, namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, fields
 from email.utils import parsedate_to_datetime
@@ -138,14 +138,7 @@ def verify(p, c):
     return (size_ok and count_ok) or shared >= 0.5
 
 
-@dataclass
-class Result:
-    title: str
-    link: str
-    size: int
-    grabs: int
-    date: float
-    indexer: str
+Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
 
 
 def candidate_ok(primary_title, primary_bytes, r, tol):
@@ -240,16 +233,14 @@ class Handler(BaseHTTPRequestHandler):
         reply = None
         if self.proxy.cfg.enabled and self.command == "POST" and self.path.endswith("/jsonrpc"):
             reply = self.proxy.handle_append(self.path, body, self.headers)
-        self._reply(*(reply or self.proxy.forward(self.path, body, self.headers, self.command)))
-
-    do_GET = do_POST
-
-    def _reply(self, status, body, ctype):
+        status, body, ctype = reply or self.proxy.forward(self.path, body, self.headers, self.command)
         self.send_response(status)
         self.send_header("Content-Type", ctype or "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    do_GET = do_POST
 
 
 class Proxy:
@@ -353,10 +344,10 @@ class Proxy:
             qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
         return qs
 
-    def fetch(self, r):
+    def fetch(self, r, deadline):
         """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'."""
         try:
-            with urllib.request.urlopen(r.link, timeout=self.cfg.timeout) as resp:
+            with urllib.request.urlopen(r.link, timeout=max(1.0, min(self.cfg.timeout, deadline - time.time()))) as resp:
                 data = resp.read()
         except OSError as e:
             log.info("donor fetch failed %s (%s): %s", r.title, r.indexer, mask(e))
@@ -393,7 +384,7 @@ class Proxy:
                     stats["deadline"] += len(order) - i
                     break
                 chunk = order[i:i + 4]
-                for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk)):
+                for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk, [deadline] * len(chunk))):
                     if reason != "ok":
                         stats[reason] += 1
                     elif not verify(info, ci):
@@ -409,9 +400,6 @@ class Proxy:
         stats["over-cap"] += max(0, len(verified) - cfg.max_donors)
         added = 0
         for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
-            if time.time() > deadline:
-                stats["deadline"] += 1
-                continue
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
             desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d]" % (score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs)
             if cfg.dry_run:

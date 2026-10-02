@@ -230,3 +230,11 @@ def test_summary_line(proxy, hydra, caplog):
     for part in ("key=" + KEY, "nzbid=1001", "candidates=1", "verified=1", "added=1", "rejected="):
         assert part in s
     assert "apikey=KEY" not in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_donor_verified_by_deadline_is_still_added(make_proxy, nzbget, hydra):
+    p = make_proxy(deadline=0.5)
+    hydra.fetch_delay = 0.7                            # fetch started before, finishes after the deadline
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    append(p, primary())
+    assert len(donors(nzbget)) == 1
