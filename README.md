@@ -45,8 +45,8 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
   4. Fetch candidates, at most `3 x MAX_DONORS`, 4 at a time. The closest size goes first, then more
      grabs, and one posting per distinct size comes before repeats.
   5. Reject a candidate if either holds:
-     - its message-ID set equals the primary's, or that of a donor already accepted (the same posting
-       from another indexer);
+     - it shares at least half its message-IDs with the primary or with a donor already accepted (the same posting
+       from another indexer, sometimes re-listed with a re-uploaded segment);
      - its largest file has a readable name that PTT says is **another release** (for example 720p
        inside a "1080p" listing). Obfuscated inner names are accepted on the strength of the title.
   6. Append up to `MAX_DONORS` donors, ranked closest size first, then grabs, then age. Each gets the

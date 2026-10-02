@@ -182,6 +182,11 @@ def parse_nzb(data):
                    max(sizes, key=sizes.get))
 
 
+def same_posting(a, b):
+    """Message-ID sets mostly shared -> one posting (indexers may re-list it with a re-uploaded segment)."""
+    return len(a & b) >= 0.5 * min(len(a), len(b))
+
+
 def candidate_ok(primary_title, primary_bytes, r, tol):
     """Hydra result worth fetching: same release by name; size only matters if a tolerance is set."""
     if tol and primary_bytes and abs(r.size - primary_bytes) > tol * primary_bytes:
@@ -399,7 +404,7 @@ class Proxy:
             # one posting of each distinct size first (same size is often the same posting), then the rest
             first_of_size = {r.size: r for r in reversed(cands)}
             order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)[:3 * cfg.max_donors]
-            verified, fps = [], {info.fingerprint}
+            verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):
                 if len(verified) >= cfg.max_donors:
                     break
@@ -412,10 +417,10 @@ class Proxy:
                         stats[reason] += 1
                     elif readable(ci.main_name) and not same_release(title, ci.main_name):
                         stats["other-release"] += 1
-                    elif ci.fingerprint in fps:
+                    elif any(same_posting(ci.message_ids, ids) for ids in postings):
                         stats["same-posting"] += 1
                     else:
-                        fps.add(ci.fingerprint)
+                        postings.append(ci.message_ids)
                         verified.append((r, data, ci))
         finally:
             pool.shutdown(wait=False, cancel_futures=True)

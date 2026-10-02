@@ -268,3 +268,14 @@ def test_summary_omits_zero_counters(proxy, hydra, caplog):
     hydra.add("Show S01E01 1080p WEB H264-GRP", release(TITLE, prefix="r"))
     append(proxy, primary())
     assert "rejected={}" in summary(caplog)
+
+
+def test_near_identical_message_ids_are_the_same_posting(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    hydra.add(TITLE, donor.replace(b"r-0-0@x", b"refilled@x"))   # same posting, one segment re-uploaded
+    hydra.add(TITLE, primary().replace(b"p-3-3@x", b"other@x"))  # the primary itself, one segment differs
+    append(proxy, primary())
+    assert len(donors(nzbget)) == 1
+    assert "'same-posting': 2" in summary(caplog)
