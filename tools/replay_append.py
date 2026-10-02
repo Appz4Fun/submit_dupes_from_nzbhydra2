@@ -5,7 +5,7 @@ Searches Hydra, downloads the picked result's NZB, then starts an in-process fak
 in-process proxy (DRY_RUN=1) in front of it and posts exactly what Hydra 9.0.4 would post.
 Production nzbget is never contacted.
 
-    python3 tools/replay_append.py --title "Lucifer S02E14 1080p" [--pick REGEX] [--max-donors 8]
+    python3 tools/replay_append.py --title "Lucifer S02E14 1080p" [--pick REGEX] [--max-donors N]
 
 HYDRA_URL / HYDRA_APIKEY come from the environment or ./.env.
 """
@@ -32,7 +32,7 @@ class _Capture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
-def replay(title, hydra_url, apikey, pick=None, max_donors=8):
+def replay(title, hydra_url, apikey, pick=None, max_donors=0):
     """Returns {primary, donors: [would-add lines], summary, fake_appends}."""
     with tempfile.TemporaryDirectory() as state_dir:
         cfg = ndp.Config.from_env({"LISTEN_PORT": "0", "HYDRA_URL": hydra_url, "HYDRA_APIKEY": apikey,
@@ -70,7 +70,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--title", required=True)
     ap.add_argument("--pick", help="regex on '<title> @<indexer>' choosing the primary (most-grabbed match wins)")
-    ap.add_argument("--max-donors", type=int, default=8)
+    ap.add_argument("--max-donors", type=int, default=0, help="<= 0: unlimited")
     a = ap.parse_args()
     if os.path.exists(".env"):
         for line in open(".env"):

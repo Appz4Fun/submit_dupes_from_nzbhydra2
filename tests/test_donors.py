@@ -290,3 +290,18 @@ def test_partial_article_overlap_rejected(proxy, nzbget, hydra, caplog):
     append(proxy, primary())
     assert donors(nzbget) == []
     assert "'same-posting': 1" in summary(caplog)
+
+
+def test_max_donors_zero_or_negative_is_unlimited(make_proxy, nzbget, hydra):
+    for i in range(12):
+        hydra.add(TITLE, release(TITLE, prefix="u%d" % i))
+    for value in (0, -1):
+        nzbget.appends.clear()
+        p = make_proxy(max_donors=value, state_dir=str(__import__("tempfile").mkdtemp()))
+        append(p, primary())
+        assert [d["params"][7] for d in donors(nzbget)] == list(range(90, 78, -1))
+
+
+def test_default_max_donors_is_unlimited():
+    import nzbget_dupe_proxy as ndp
+    assert ndp.Config.from_env({}).max_donors == 0

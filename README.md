@@ -43,14 +43,14 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 
      Size is **not** a filter: reposts of one release can differ by GBs, mostly because of par2 and
      packaging. `SIZE_TOLERANCE` can add a cap.
-  4. Fetch candidates, at most `3 x MAX_DONORS`, 4 at a time. The closest size goes first, then more
+  4. Fetch candidates 4 at a time (all of them, or at most `3 x MAX_DONORS` when a cap is set). The closest size goes first, then more
      grabs, and one posting per distinct size comes before repeats.
   5. Reject a candidate if either holds:
      - it shares at least half its message-IDs with the primary or with a donor already accepted (the same posting
        from another indexer, sometimes re-listed with a re-uploaded segment);
      - its largest file has a readable name that PTT says is **another release** (for example 720p
        inside a "1080p" listing). Obfuscated inner names are accepted on the strength of the title.
-  6. Append up to `MAX_DONORS` donors, ranked closest size first, then grabs, then age. Each gets the
+  6. Append the donors (all of them, or up to `MAX_DONORS`), ranked closest size first, then grabs, then age. Each gets the
      same DupeKey, score 90, 89, …, the same category, and `AddPaused=false`. nzbget has
      `DupeCheck=yes`, so it moves them straight to history as dupe backups. That makes them donors,
      and also re-download candidates if the primary fails.
@@ -62,7 +62,7 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
   only when all of them answer 430. A donor whose sample is mostly gone is dropped as `dead`. To get donors
   into nzbget quickly, every candidate is probed together in one connection pool. The best `FAST_DONORS` (5)
   that pass the probe are appended at once. Each remaining candidate then gets its full sample and is appended
-  as soon as it passes, until `MAX_DONORS`.
+  as soon as it passes, until `MAX_DONORS` if a cap is set.
 - **The real content check is nzbget's.** Before DupeArticleFallback uses any donor bytes, it fetches
   probe articles and compares at least 16 KiB of data. A donor whose name matches but whose content
   differs only costs a few probe articles; it cannot corrupt the download.
@@ -92,7 +92,7 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `NZBGET_URL` | `http://127.0.0.1:6789` | real nzbget |
 | `HYDRA_URL` | (none) | NZBHydra2 base URL, e.g. `http://127.0.0.1:5076` |
 | `HYDRA_APIKEY` | (none) | Hydra API key |
-| `MAX_DONORS` | `8` | max donors per append |
+| `MAX_DONORS` | `0` | max donors per append; `0` or `-1` = unlimited (every verified, live posting). With a cap N, at most 3N candidate NZBs are fetched; unlimited fetches every candidate (one indexer grab each) |
 | `SIZE_TOLERANCE` | `0` | `0` = size is not a filter; for example `0.2` skips Hydra results more than 20% off |
 | `HEALTH_PERCENT` | `2` | STAT this % of each NZB's articles (min 20, max 300) on **every** active news server from nzbget's config; `0` = off |
 | `DONOR_MIN_ALIVE` | `0.5` | drop a donor (`rejected: dead`) when less than this share of its sampled articles exists on any server |
@@ -166,7 +166,7 @@ sudo rm -rf /opt/nzbget-dupe-proxy /etc/systemd/system/nzbget-dupe-proxy.service
 
 ## Notes and limits
 
-- Each candidate fetch counts as a grab at that indexer, so fetches are capped at `3 x MAX_DONORS`.
+- Each candidate fetch counts as a grab at that indexer, so with a `MAX_DONORS` cap the fetches are limited to `3 x MAX_DONORS`; the unlimited default fetches every candidate.
   Indexers that are over their grab limit return 403, which is counted as `rejected: fetch`.
 - Release identity is name-based. If an indexer lists a posting under a renamed or obfuscated title,
   it cannot be matched, because Hydra's title is the only signal available before fetching.

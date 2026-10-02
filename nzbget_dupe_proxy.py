@@ -8,6 +8,7 @@ resolution, source, codec, audio, HDR, ...), not by size. Python 3 stdlib + vend
 import base64
 import functools
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -48,7 +49,7 @@ class Config:
     nzbget_url: str = "http://127.0.0.1:6789"
     hydra_url: str = ""
     hydra_apikey: str = ""
-    max_donors: int = 8
+    max_donors: int = 0  # <= 0 (0 or -1): unlimited
     size_tolerance: float = 0.0  # > 0: skip Hydra results whose size differs more than this fraction
     state_dir: str = "/var/lib/nzbget-dupe-proxy"
     enabled: bool = True
@@ -71,6 +72,11 @@ class Config:
                 setattr(c, f.name, v.lower() in ("1", "true", "yes", "on") if conv is bool else conv(v))
         c.nzbget_url, c.hydra_url = c.nzbget_url.rstrip("/"), c.hydra_url.rstrip("/")
         return c
+
+    @property
+    def donor_cap(self):
+        """MAX_DONORS as a number, or infinity when MAX_DONORS <= 0."""
+        return self.max_donors if self.max_donors > 0 else float("inf")
 
 
 def clean_name(name):
@@ -416,10 +422,12 @@ class Proxy:
                 title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             # one posting of each distinct size first (same size is often the same posting), then the rest
             first_of_size = {r.size: r for r in reversed(cands)}
-            order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)[:3 * cfg.max_donors]
+            order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)
+            if cfg.max_donors > 0:  # each fetch costs an indexer grab
+                order = order[:3 * cfg.max_donors]
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):
-                if len(verified) >= cfg.max_donors:
+                if len(verified) >= cfg.donor_cap:
                     break
                 if time.time() > deadline:
                     stats["deadline"] += len(order) - i
@@ -445,12 +453,13 @@ class Proxy:
             log.info("health %s: primary alive=%s (probe) on %d server(s)", title, pct(probe["primary"].alive),
                      len(servers))
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
-        fast, slow = live[:min(cfg.fast_donors, cfg.max_donors)], live[min(cfg.fast_donors, cfg.max_donors):]
-        scores, added = iter(range(90, 0, -1)), 0
+        n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
+        fast, slow = live[:n_fast], live[n_fast:]
+        scores, added = itertools.count(90, -1), 0  # always below the primary's 100
         for v in fast:  # quick: probe-alive donors go to nzbget right away
             added += self.add_donor(key, category, path, auth, v, next(scores), probe, "fast", stats)
         for i, v in enumerate(slow):  # then each remaining donor gets its full sample before it is added
-            if added >= cfg.max_donors:
+            if added >= cfg.donor_cap:
                 stats["over-cap"] = len(slow) - i
                 break
             h = self.health(servers, title, {v[2].fingerprint: v[2].message_ids}, full=True)
@@ -546,8 +555,9 @@ def main():
     cfg = Config.from_env(os.environ)
     cfg.dry_run = cfg.dry_run or "--dry-run" in sys.argv
     port = Proxy(cfg).start()
-    log.info("listening on :%d -> %s (enabled=%s dry_run=%s hydra=%s max_donors=%d)", port,
-             mask(cfg.nzbget_url), cfg.enabled, cfg.dry_run, mask(cfg.hydra_url), cfg.max_donors)
+    log.info("listening on :%d -> %s (enabled=%s dry_run=%s hydra=%s max_donors=%s)", port,
+             mask(cfg.nzbget_url), cfg.enabled, cfg.dry_run, mask(cfg.hydra_url), cfg.max_donors if cfg.max_donors > 0
+             else "unlimited")
     threading.Event().wait()
 
 
