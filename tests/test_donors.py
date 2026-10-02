@@ -279,3 +279,14 @@ def test_near_identical_message_ids_are_the_same_posting(proxy, nzbget, hydra, c
     append(proxy, primary())
     assert len(donors(nzbget)) == 1
     assert "'same-posting': 2" in summary(caplog)
+
+
+def test_partial_article_overlap_rejected(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    nzb = primary()
+    for f in range(2, 10):                                  # re-id 8 of 10 files: still shares 20% of article ids
+        nzb = nzb.replace(b">p-%d-" % f, b">x-%d-" % f)
+    hydra.add(TITLE, nzb)
+    append(proxy, primary())
+    assert donors(nzbget) == []
+    assert "'same-posting': 1" in summary(caplog)

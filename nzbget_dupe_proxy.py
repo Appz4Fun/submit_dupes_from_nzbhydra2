@@ -178,13 +178,15 @@ def parse_nzb(data):
                     ids.add((seg.text or "").strip())
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
+    data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
-                   max(sizes, key=sizes.get))
+                   max(data_files, key=data_files.get))
 
 
 def same_posting(a, b):
-    """Message-ID sets mostly shared -> one posting (indexers may re-list it with a re-uploaded segment)."""
-    return len(a & b) >= 0.5 * min(len(a), len(b))
+    """Any real article-ID overlap (> 1%) -> same posting: donors must point at different articles.
+    (Indexers re-list one posting with a re-uploaded segment; distinct postings share 0%.)"""
+    return len(a & b) > 0.01 * min(len(a), len(b))
 
 
 def candidate_ok(primary_title, primary_bytes, r, tol):

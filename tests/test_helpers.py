@@ -92,3 +92,8 @@ def test_parse_nzb_accepts_standard_doctype():
         b"\n<nzb", b'\n<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">\n<nzb', 1)
     assert parse_nzb(nzb).files == 1
 
+
+
+def test_parse_nzb_main_name_skips_par2():
+    i = parse_nzb(make_nzb([("abc.vol063-121.par2", [500]), ("Show.S01E01.1080p.WEB.H264-GRP.mkv", [100])]))
+    assert i.main_name == "Show.S01E01.1080p.WEB.H264-GRP.mkv"
