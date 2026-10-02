@@ -55,7 +55,8 @@ class Config:
     dry_run: bool = False
     health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
-    health_connections: int = 2   # per news server, so nzbget keeps its own connection slots
+    health_connections: int = 8   # per news server (and <= half its nzbget Connections)
+    health_budget: float = 120.0  # s for all health STATs of one append; unanswered = unknown (donor kept)
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -477,11 +478,13 @@ class Proxy:
             log.info("health check skipped for %s: no active news servers in nzbget config", title)
             return alive
         try:
-            log.info("health %s: primary alive=%s on %d server(s)", title,
-                     pct(donor_health.availability(servers, info.message_ids, self.cfg.health_percent).alive),
-                     len(servers))
+            t0 = time.time()
+            groups = dict({ci.fingerprint: ci.message_ids for _, _, ci in verified}, primary=info.message_ids)
+            res = donor_health.check_many(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget)
+            log.info("health %s: primary alive=%s on %d server(s), %d nzb(s) checked in %.1fs", title,
+                     pct(res["primary"].alive), len(servers), len(groups), time.time() - t0)
             for r, _, ci in verified:
-                h = donor_health.availability(servers, ci.message_ids, self.cfg.health_percent)
+                h = res[ci.fingerprint]
                 if h.alive is not None and h.alive < self.cfg.donor_min_alive:
                     stats["dead"] += 1
                     del alive[ci.fingerprint]

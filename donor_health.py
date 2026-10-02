@@ -10,6 +10,7 @@ import os
 import random
 import re
 import sys
+import time
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
@@ -24,7 +25,8 @@ class Server(ServerConfig):
 def servers_from_nzbget_config(entries, connections=2, timeout=15.0):
     """Active ServerN.* entries of nzbget's `config` JSON-RPC result -> cyclops server list.
 
-    `connections` caps connections per server so nzbget's own downloads keep their slots."""
+    Uses at most `connections`, and at most half of the server's own nzbget Connections, per server
+    so nzbget's downloads keep their slots."""
     opts = {e["Name"]: str(e.get("Value", "")) for e in entries}
     numbers = sorted({int(m.group(1)) for m in (re.match(r"Server(\d+)\.Host$", k) for k in opts) if m})
     out = []
@@ -36,7 +38,7 @@ def servers_from_nzbget_config(entries, connections=2, timeout=15.0):
         out.append(Server(name="server%d" % n, host=get("Host"), port=int(get("Port") or 119),
                           ssl=get("Encryption").lower() == "yes", username=user,
                           password=get("Password") if user else None,
-                          max_connections=max(1, min(connections, int(get("Connections") or connections))),
+                          max_connections=max(1, min(connections, int(get("Connections") or 2 * connections) // 2)),
                           timeout=timeout))
     return out
 
@@ -48,6 +50,9 @@ def sample(ids, percent, minimum=20, maximum=300, seed=0):
     return random.Random(seed).sample(ids, k)
 
 
+MIN_KNOWN = 5  # definite (present/missing) answers needed before judging an NZB
+
+
 @dataclass
 class Health:
     checked: int
@@ -57,13 +62,53 @@ class Health:
 
     @property
     def alive(self):
-        """Present share of the definite answers; None if every check was indeterminate."""
+        """Present share of the definite answers; None if too few answers (errors, budget) to judge."""
         known = self.present + self.missing
-        return self.present / known if known else None
+        return self.present / known if known >= MIN_KNOWN else None
+
+
+def _stat_all(servers, ids, status, deadline):
+    """STAT `ids` on all servers (one shared pool) until done or `deadline`; fills {id: final status}."""
+    if not ids:
+        return
+    verifier = _Verifier(list(servers), retries=1, progress_stream=io.StringIO())
+
+    async def run():
+        task = asyncio.ensure_future(verifier.run(ids))
+        done, _ = await asyncio.wait({task}, timeout=max(0.01, deadline - time.monotonic()))
+        if not done:  # cyclops drains its queue on shutdown: drop the queue and cancel workers ourselves
+            verifier.jobs.clear()
+            for worker in verifier.workers:
+                worker.cancel()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    status.update((mid, st.final_status) for mid, st in verifier.states.items() if st.final_status)
+
+
+def _tally(ids, status):
+    got = [status.get(i) for i in ids]
+    return Health(len(ids), got.count("present"), got.count("missing"), got.count("error"))
+
+
+def check_many(servers, groups, percent=2.0, probe=10, budget=120.0):
+    """{key: message ids} -> {key: Health}. Each NZB first gets `probe` articles checked; one with none
+    on any server is dead and skips its full `percent` sample. Unanswered ids after `budget` s: unknown."""
+    deadline = time.monotonic() + budget
+    full = {k: sample(ids, percent) for k, ids in groups.items()}
+    probes = {k: f[:probe] if len(f) >= probe else sample(groups[k], 0, probe, probe) for k, f in full.items()}
+    status = {}
+    _stat_all(servers, list(dict.fromkeys(i for p in probes.values() for i in p)), status, deadline)
+    for k, p in probes.items():
+        h = _tally(p, status)
+        if h.present == 0 and h.missing >= MIN_KNOWN:
+            full[k] = p
+    _stat_all(servers, [i for i in dict.fromkeys(i for f in full.values() for i in f) if i not in status], status,
+              deadline)
+    return {k: _tally(f, status) for k, f in full.items()}
 
 
 def availability(servers, message_ids, percent=2.0):
-    """STAT a sample of `message_ids` (without <>) on all servers, falling back server by server."""
-    verifier = _Verifier(list(servers), retries=1, progress_stream=io.StringIO())
-    s = asyncio.run(verifier.run(sample(message_ids, percent)))
-    return Health(s.total_checked, s.present, s.missing, s.error)
+    """Health of one NZB's articles (see check_many)."""
+    return check_many(servers, {0: message_ids}, percent)[0]

@@ -14,9 +14,10 @@ def test_servers_from_nzbget_config():
         ("Server3.Active", "yes"), ("Server3.Host", "news.c"), ("Server3.Port", "119"), ("Server3.Encryption", "no"),
         ("Server3.Username", ""), ("Server3.Password", ""), ("Server3.Connections", "1"),
         ("Server4.Active", "yes"), ("Server4.Host", ""), ("ControlPassword", "x")]]
-    s = dh.servers_from_nzbget_config(entries, connections=2, timeout=7)
+    s = dh.servers_from_nzbget_config(entries, connections=8, timeout=7)
     assert [(x.host, x.port, x.ssl, x.username, x.password, x.max_connections, x.timeout) for x in s] == [
-        ("news.a", 563, True, "u1", "secret", 2, 7), ("news.c", 119, False, None, None, 1, 7)]
+        ("news.a", 563, True, "u1", "secret", 8, 7), ("news.c", 119, False, None, None, 1, 7)]
+    assert dh.servers_from_nzbget_config(entries[:7], connections=50)[0].max_connections == 15  # half of 30
     assert "secret" not in repr(s)
 
 
@@ -33,7 +34,7 @@ def test_availability_falls_back_across_all_servers():
     h = dh.availability(servers, ids, percent=100)
     assert (h.checked, h.present, h.missing) == (40, 40, 0) and h.alive == 1.0
     dead = dh.availability(servers, ["zz%d@x" % i for i in range(30)], percent=100)
-    assert (dead.present, dead.missing) == (0, 30) and dead.alive == 0.0
+    assert (dead.present, dead.missing) == (0, 10) and dead.alive == 0.0     # probe only: dead after 10
 
 
 def test_dead_donor_dropped_alive_donor_kept(make_proxy, nzbget, hydra, caplog):
@@ -63,3 +64,30 @@ def test_health_check_skipped_without_servers(make_proxy, nzbget, hydra, caplog)
     p.wait_idle(20)
     assert len(nzbget.appends) == 2
     assert "health check skipped" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_check_many_probes_dead_nzbs_before_full_sample():
+    alive = ["a%d@x" % i for i in range(2000)]
+    dead = ["d%d@x" % i for i in range(2000)]
+    s1, s2 = FakeNntp(alive), FakeNntp()
+    servers = dh.servers_from_nzbget_config(s1.config(1) + s2.config(2))
+    res = dh.check_many(servers, {"alive": alive, "dead": dead}, percent=2.0, probe=10)
+    assert (res["alive"].checked, res["alive"].present) == (40, 40)              # full 2% sample
+    assert (res["dead"].checked, res["dead"].missing) == (10, 10)                # stopped after the probe
+    assert sum(m.startswith("d") for m in s1.stats + s2.stats) == 20             # 10 ids x 2 servers
+
+
+def test_check_many_budget_leaves_unknown():
+    import time
+    slow = FakeNntp()
+    slow.delay = 0.3
+    servers = dh.servers_from_nzbget_config(slow.config(1), connections=1)
+    t0 = time.time()
+    res = dh.check_many(servers, {"x": ["x%d@x" % i for i in range(50)]}, percent=100, probe=50, budget=1.0)
+    assert time.time() - t0 < 3
+    assert res["x"].alive is None or res["x"].present + res["x"].missing < 50
+
+
+def test_alive_needs_enough_definite_answers():
+    assert dh.Health(300, 0, 1, 299).alive is None
+    assert dh.Health(300, 0, 5, 295).alive == 0.0

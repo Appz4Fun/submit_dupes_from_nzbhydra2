@@ -179,6 +179,7 @@ class _NntpHandler(socketserver.StreamRequestHandler):
                 self.wfile.write(b"281 ok\r\n" if cmd == "AUTHINFO PASS " + o.password else b"481 denied\r\n")
             elif cmd.startswith("STAT "):
                 mid = cmd[5:].strip("<>")
+                time.sleep(o.delay)
                 o.stats.append(mid)
                 self.wfile.write(("223 0 <%s>\r\n" % mid if mid in o.articles else "430 no such article\r\n").encode())
             elif cmd == "QUIT":
@@ -192,7 +193,7 @@ class FakeNntp:
     """Plain-TCP NNTP server answering STAT from a set of message-ids (without <>)."""
 
     def __init__(self, articles=(), password="pw"):
-        self.articles, self.password, self.stats = set(articles), password, []
+        self.articles, self.password, self.stats, self.delay = set(articles), password, [], 0.0
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))
         srv.daemon_threads, srv.owner, self.server = True, self, srv
         threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
