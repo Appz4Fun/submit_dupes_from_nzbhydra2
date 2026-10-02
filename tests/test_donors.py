@@ -238,3 +238,17 @@ def test_donor_verified_by_deadline_is_still_added(make_proxy, nzbget, hydra):
     hydra.add(TITLE, release(TITLE, prefix="r"))
     append(p, primary())
     assert len(donors(nzbget)) == 1
+
+
+def test_verify_count_false_accepts_repackaged_repost(make_proxy, nzbget, hydra):
+    p = make_proxy(verify_count="false")
+    hydra.add(TITLE, release("x", prefix="q", n_files=20, segs_per_file=10))  # same bytes, 20 files, no shared names
+    append(p, primary())
+    assert len(donors(nzbget)) == 1
+
+
+def test_summary_omits_zero_counters(proxy, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    hydra.add("Show.S01E01.1080p.WEB.H264-OTHER", release(TITLE, prefix="r"))
+    append(proxy, primary())
+    assert "rejected={}" in summary(caplog)

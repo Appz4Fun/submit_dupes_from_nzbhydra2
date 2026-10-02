@@ -46,6 +46,7 @@ class Config:
     state_dir: str = "/var/lib/nzbget-dupe-proxy"
     enabled: bool = True
     dry_run: bool = False
+    verify_count: bool = True  # false: accept repackaged reposts (same bytes, different file count)
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -127,10 +128,11 @@ def parse_nzb(data):
     return NzbInfo(files, total, frozenset(names), poster, frozenset(ids), meta)
 
 
-def verify(p, c):
-    """Same release? (bytes within 1% and file count within 10%) or >= 50% filenames shared."""
+def verify(p, c, check_count=True):
+    """Same release? (bytes within 1% and file count within 10%) or >= 50% filenames shared.
+    check_count=False drops the file-count clause: reposts are often repackaged (rar <-> 7z, volume size)."""
     size_ok = abs(c.total_bytes - p.total_bytes) <= 0.01 * p.total_bytes
-    count_ok = abs(c.files - p.files) <= 0.10 * p.files
+    count_ok = not check_count or abs(c.files - p.files) <= 0.10 * p.files
     shared = len(p.filenames & c.filenames) / max(1, min(len(p.filenames), len(c.filenames)))
     return (size_ok and count_ok) or shared >= 0.5
 
@@ -173,11 +175,11 @@ class State:
         except OSError as e:
             log.error("cannot write state %s: %s", self.path, e)
 
-    def group_for(self, info, now):
+    def group_for(self, info, now, check_count=True):
         """Key of a recent group whose primary looks like the same release as `info`."""
         for key, g in sorted(self.data.items(), key=lambda kv: -kv[1]["t"]):
             if now - g["t"] < GROUP_WINDOW and g["bytes"] and verify(
-                    NzbInfo(g["files"], g["bytes"], frozenset(g["names"]), "", frozenset(), {}), info):
+                    NzbInfo(g["files"], g["bytes"], frozenset(g["names"]), "", frozenset(), {}), info, check_count):
                 return key
         return None
 
@@ -264,7 +266,7 @@ class Proxy:
         except (ValueError, TypeError) as e:
             log.info("append %s: content is not an NZB (%s); no donor discovery", title, e)
         with self.state.lock:
-            key = params[6] or (info and self.state.group_for(info, t0)) or "dupes:" + normalize_title(title)
+            key = params[6] or (info and self.state.group_for(info, t0, self.cfg.verify_count)) or "dupes:" + normalize_title(title)
             g = self.state.data.get(key)
             fresh = bool(g) and t0 - g["t"] < GROUP_WINDOW
             old = info and fresh and self.state.sent(key, info.fingerprint)
@@ -366,7 +368,7 @@ class Proxy:
                 for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk, [deadline] * len(chunk))):
                     if reason != "ok":
                         stats[reason] += 1
-                    elif not verify(info, ci):
+                    elif not verify(info, ci, cfg.verify_count):
                         stats["mismatch"] += 1
                     elif ci.fingerprint in fps:
                         stats["same-posting"] += 1
@@ -376,7 +378,8 @@ class Proxy:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (-v[0].grabs, -v[0].date))
-        stats["over-cap"] += max(0, len(verified) - cfg.max_donors)
+        if len(verified) > cfg.max_donors:
+            stats["over-cap"] = len(verified) - cfg.max_donors
         added = 0
         for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"

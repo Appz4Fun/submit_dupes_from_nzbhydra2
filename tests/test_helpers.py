@@ -95,3 +95,10 @@ def test_parse_nzb_accepts_standard_doctype():
     nzb = make_nzb([("a.mkv", [5])]).replace(
         b"\n<nzb", b'\n<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">\n<nzb', 1)
     assert parse_nzb(nzb).files == 1
+
+
+def test_verify_without_count_check():
+    p = info(8, 1000, {"a"})
+    assert not verify(p, info(20, 1000, {"x"}))
+    assert verify(p, info(20, 1000, {"x"}), check_count=False)
+    assert not verify(p, info(20, 1040, {"x"}), check_count=False)

@@ -73,6 +73,7 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `HYDRA_APIKEY` | (none) | Hydra API key |
 | `MAX_DONORS` | `8` | max donors per append |
 | `SIZE_TOLERANCE` | `0.02` | Hydra size pre-filter (fraction) |
+| `VERIFY_COUNT` | `true` | `false` drops the ±10% file-count clause, so a same-size repost with different packaging is accepted |
 | `STATE_DIR` | `/var/lib/nzbget-dupe-proxy` | state file location |
 | `ENABLED` | `true` | `false` = pure pass-through (kill switch) |
 | `DRY_RUN` | `0` | `1` = discover and log donors, append only the primary (also `--dry-run`) |
