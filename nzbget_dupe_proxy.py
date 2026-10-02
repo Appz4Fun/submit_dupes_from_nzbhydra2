@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """nzbget-dupe-proxy: impersonates nzbget toward NZBHydra2 and adds duplicate postings as donors.
 
-Every request is forwarded verbatim to nzbget. JSON-RPC `append` gets a DupeKey; afterwards a
-background worker finds other postings of the same release via Hydra's newznab API and appends
-them under the same DupeKey with lower DupeScores, so nzbget keeps them as duplicate backups
-(donors for DupeArticleFallback). Python 3 stdlib only.
-"""
+Requests are forwarded verbatim to nzbget; JSON-RPC `append` gets a DupeKey, then a background worker finds other
+postings of the same release via Hydra and appends them under that DupeKey with lower DupeScores, as donors for
+nzbget's DupeArticleFallback. Python 3 stdlib only."""
 import base64
 import hashlib
 import json
@@ -15,8 +13,8 @@ import re
 import sys
 import threading
 import time
-import urllib.parse
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter, namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -27,6 +25,14 @@ from xml.etree import ElementTree as ET
 from xml.parsers import expat
 
 log = logging.getLogger("nzbget-dupe-proxy")
+GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
+STATE_TTL = 30 * 86400   # s: forget groups after this
+Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
+EXT_RE = re.compile(r"\.(nzb|mkv|mp4|m4v|avi|ts|rar|par2|7z|zip|nfo|sfv)$", re.I)
+JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv\w*|buymore|"
+                     r"chamele0n|sample|repost))+$", re.I)
+MARKER_RE = re.compile(r"^(s\d{1,3}e\d{1,4}|(19|20)\d\d)$")      # episode / year: must match
+RES_RE = re.compile(r"^(\d{3,4}p|4k|uhd)$")
 
 
 @dataclass
@@ -55,18 +61,10 @@ class Config:
         return c
 
 
-EXT_RE = re.compile(r"\.(nzb|mkv|mp4|m4v|avi|ts|rar|par2|7z|zip|nfo|sfv)$", re.I)
-JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv\w*|buymore|"
-                     r"chamele0n|sample|repost))+$", re.I)
-MARKER_RE = re.compile(r"^(s\d{1,3}e\d{1,4}|(19|20)\d\d)$")      # episode / year: must match
-RES_RE = re.compile(r"^(\d{3,4}p|4k|uhd)$")
-
-
 def normalize_title(name):
     """Lowercase, drop extension / [tags] / indexer junk, separators -> single dots."""
     name = EXT_RE.sub("", EXT_RE.sub("", name.strip()))
-    name = re.sub(r"\[[^\]]*\]|\{[^}]*\}", " ", name).strip()
-    name = JUNK_RE.sub("", name)
+    name = JUNK_RE.sub("", re.sub(r"\[[^\]]*\]|\{[^}]*\}", " ", name).strip())
     return re.sub(r"[\s._\-()+,]+", ".", name.lower()).strip(".")
 
 
@@ -110,19 +108,18 @@ def safe_xml(data):
 
 def parse_nzb(data):
     """Parse NZB bytes into an NzbInfo; ValueError if malformed or empty."""
-    root = safe_xml(data)
-    tag = lambda el: el.tag.rsplit("}", 1)[-1]  # noqa: E731
     files, names, ids, total, poster, meta = 0, set(), set(), 0, "", {}
-    for el in root.iter():
-        if tag(el) == "meta" and el.get("type"):
+    for el in safe_xml(data).iter():
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag == "meta" and el.get("type"):
             meta[el.get("type").lower()] = (el.text or "").strip()
-        elif tag(el) == "file":
+        elif tag == "file":
             files += 1
             poster = poster or el.get("poster", "")
             subj = el.get("subject", "")
             m = re.search(r'"([^"]+)"', subj)
             names.add((m.group(1) if m else subj).strip().lower())
-        elif tag(el) == "segment":
+        elif tag == "segment":
             total += int(el.get("bytes") or 0)
             ids.add((el.text or "").strip())
     if not files or not ids:
@@ -138,17 +135,12 @@ def verify(p, c):
     return (size_ok and count_ok) or shared >= 0.5
 
 
-Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
-
-
 def candidate_ok(primary_title, primary_bytes, r, tol):
     """Hydra result worth fetching: size close, same episode/year, and similar title."""
     if not primary_bytes or abs(r.size - primary_bytes) > tol * primary_bytes:
         return False
-    p, c = set(normalize_title(primary_title).split(".")), set(normalize_title(r.title).split("."))
-    if {t for t in p if MARKER_RE.match(t)} - c:
-        return False
-    return normalize_title(primary_title) == normalize_title(r.title) or len(p & c) >= 0.5 * len(p)
+    p, c = (set(normalize_title(t).split(".")) for t in (primary_title, r.title))
+    return not {t for t in p if MARKER_RE.match(t)} - c and len(p & c) >= 0.5 * len(p)
 
 
 def mask(text):
@@ -156,10 +148,6 @@ def mask(text):
     text = re.sub(r"(?i)(apikey=)[^&\s]+", r"\1***", str(text))
     text = re.sub(r"//[^/@\s]+:[^/@\s]+@", "//***@", text)
     return re.sub(r"/[^/:\s]+:[^/\s]+/(json|xml)rpc", r"/***/\1rpc", text)
-
-
-GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
-STATE_TTL = 30 * 86400   # s: forget groups after this
 
 
 class State:
@@ -230,9 +218,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        reply = None
-        if self.proxy.cfg.enabled and self.command == "POST" and self.path.endswith("/jsonrpc"):
-            reply = self.proxy.handle_append(self.path, body, self.headers)
+        intercept = self.proxy.cfg.enabled and self.command == "POST" and self.path.endswith("/jsonrpc")
+        reply = self.proxy.handle_append(self.path, body, self.headers) if intercept else None
         status, body, ctype = reply or self.proxy.forward(self.path, body, self.headers, self.command)
         self.send_response(status)
         self.send_header("Content-Type", ctype or "application/octet-stream")
@@ -245,10 +232,8 @@ class Handler(BaseHTTPRequestHandler):
 
 class Proxy:
     def __init__(self, cfg):
-        self.cfg = cfg
-        self.state = State(cfg.state_dir)
-        self.workers = []
-        self.server = None
+        self.cfg, self.state = cfg, State(cfg.state_dir)
+        self.workers, self.server = [], None
 
     def forward(self, path, body, headers, method="POST"):
         """Send a request to nzbget unchanged; returns (status, body, content-type)."""
@@ -264,7 +249,6 @@ class Proxy:
             log.error("nzbget unreachable for %s: %s", mask(path), e)
             return 502, b"nzbget unreachable", "text/plain"
 
-    # ---- append interception -------------------------------------------------------------
     def handle_append(self, path, body, headers):
         """Rewrite + forward a positional JSON-RPC append; None means 'not ours, pass through'."""
         try:
@@ -274,8 +258,7 @@ class Proxy:
                 return None
         except (ValueError, TypeError, KeyError, AttributeError):
             return None
-        t0, title = time.time(), re.sub(r"(?i)\.nzb$", "", str(params[0]))
-        info = None
+        t0, title, info = time.time(), re.sub(r"(?i)\.nzb$", "", str(params[0])), None
         try:
             info = parse_nzb(base64.b64decode(params[1], validate=True))
         except (ValueError, TypeError) as e:
@@ -287,7 +270,8 @@ class Proxy:
             old = info and fresh and self.state.sent(key, info.fingerprint)
             if old:
                 log.info("append key=%s nzbid=%s title=%s: posting already sent, not re-adding", key, old, title)
-                return 200, json.dumps({"version": "1.1", "id": req.get("id"), "result": old}).encode(), "application/json"
+                reply = {"version": "1.1", "id": req.get("id"), "result": old}
+                return 200, json.dumps(reply).encode(), "application/json"
             params[6:9] = [key, 100, "SCORE"]
             status, rbody, ctype = self.forward(path, json.dumps(req).encode(), headers)
             nzbid = rpc_result(status, rbody)
@@ -309,11 +293,9 @@ class Proxy:
         except Exception:  # never let a donor problem escape the worker
             log.exception("donor discovery crashed for key=%s", args[0])
 
-    # ---- donor discovery -----------------------------------------------------------------
     def hydra_search(self, params):
-        q = dict(params, limit=100, apikey=self.cfg.hydra_apikey)
-        url = self.cfg.hydra_url + "/api?" + urllib.parse.urlencode(q)
-        with urllib.request.urlopen(url, timeout=self.cfg.timeout) as r:
+        query = urllib.parse.urlencode(dict(params, limit=100, apikey=self.cfg.hydra_apikey))
+        with urllib.request.urlopen(self.cfg.hydra_url + "/api?" + query, timeout=self.cfg.timeout) as r:
             root = safe_xml(r.read())
         if root.tag == "error":
             raise OSError("hydra error %s: %s" % (root.get("code"), root.get("description")))
@@ -330,15 +312,13 @@ class Proxy:
         return out
 
     def queries(self, title, info):
-        norm = normalize_title(title)
+        norm, short = normalize_title(title), short_query(title)
         qs = [{"t": "search", "q": norm.replace(".", " ")}]
-        short = short_query(title)
         if short and short != qs[0]["q"]:
             qs.append({"t": "search", "q": short})
-        imdb = re.sub(r"\D", "", info.meta.get("imdb", ""))
+        imdb, tvdb = (re.sub(r"\D", "", info.meta.get(k, "")) for k in ("imdb", "tvdb"))
         if imdb:
             qs.append({"t": "movie", "imdbid": imdb})
-        tvdb = re.sub(r"\D", "", info.meta.get("tvdb", ""))
         m = re.search(r"(?:^|\.)s(\d+)e(\d+)(?:\.|$)", norm)
         if tvdb and m:
             qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
@@ -346,8 +326,9 @@ class Proxy:
 
     def fetch(self, r, deadline):
         """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'."""
+        timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
         try:
-            with urllib.request.urlopen(r.link, timeout=max(1.0, min(self.cfg.timeout, deadline - time.time()))) as resp:
+            with urllib.request.urlopen(r.link, timeout=timeout) as resp:
                 data = resp.read()
         except OSError as e:
             log.info("donor fetch failed %s (%s): %s", r.title, r.indexer, mask(e))
@@ -358,10 +339,9 @@ class Proxy:
             return "parse", None, None
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
-        cfg, stats, deadline = self.cfg, Counter(), t0 + self.cfg.deadline
+        cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
         pool = ThreadPoolExecutor(4)
         try:
-            results = {}
             for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info)]:
                 try:
                     for r in f.result(timeout=max(0.0, deadline - time.time())):
@@ -372,11 +352,10 @@ class Proxy:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
             cands = sorted((r for r in results.values() if r.link and candidate_ok(
                 title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (-r.grabs, -r.date))
-            sizes, first, rest = set(), [], []
-            for r in cands:  # one posting of each distinct size first: same size is often the same posting
-                (rest if r.size in sizes else first).append(r)
-                sizes.add(r.size)
-            order, verified, fps = (first + rest)[:3 * cfg.max_donors], [], {info.fingerprint}
+            # one posting of each distinct size first (same size is often the same posting), then the rest
+            first_of_size = {r.size: r for r in reversed(cands)}
+            order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)[:3 * cfg.max_donors]
+            verified, fps = [], {info.fingerprint}
             for i in range(0, len(order), 4):
                 if len(verified) >= cfg.max_donors:
                     break
@@ -401,7 +380,8 @@ class Proxy:
         added = 0
         for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
-            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d]" % (score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs)
+            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d]" % (
+                score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs)
             if cfg.dry_run:
                 log.info("DRY-RUN would add donor %s", desc)
                 continue
@@ -417,8 +397,8 @@ class Proxy:
                     log.info("added donor nzbid=%d %s", donor_id, desc)
                 else:
                     stats["append"] += 1
-        log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s time=%.1fs",
-                 key, nzbid, title, len(results), len(cands), len(verified), added,
+        log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
+                 "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified), added,
                  " dry_run would_add=%d" % min(len(verified), cfg.max_donors) if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
 
@@ -429,8 +409,7 @@ class Proxy:
 
     def start(self, host="0.0.0.0"):
         handler = type("BoundHandler", (Handler,), {"proxy": self})
-        self.server = ThreadingHTTPServer((host, self.cfg.listen_port), handler)
-        self.server.daemon_threads = True
+        self.server = ThreadingHTTPServer((host, self.cfg.listen_port), handler)  # daemon_threads by default
         self.url = "http://%s:%d" % (host, self.server.server_address[1])
         threading.Thread(target=self.server.serve_forever, args=(0.1,), daemon=True).start()
         return self.server.server_address[1]
@@ -447,10 +426,8 @@ class Proxy:
 def main():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s %(message)s")
     cfg = Config.from_env(os.environ)
-    if "--dry-run" in sys.argv:
-        cfg.dry_run = True
-    p = Proxy(cfg)
-    port = p.start()
+    cfg.dry_run = cfg.dry_run or "--dry-run" in sys.argv
+    port = Proxy(cfg).start()
     log.info("listening on :%d -> %s (enabled=%s dry_run=%s hydra=%s max_donors=%d)", port,
              mask(cfg.nzbget_url), cfg.enabled, cfg.dry_run, mask(cfg.hydra_url), cfg.max_donors)
     threading.Event().wait()
