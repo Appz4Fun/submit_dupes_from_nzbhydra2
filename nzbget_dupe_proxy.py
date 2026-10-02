@@ -8,7 +8,6 @@ resolution, source, codec, audio, HDR, ...), not by size. Python 3 stdlib + vend
 import base64
 import functools
 import hashlib
-import itertools
 import json
 import logging
 import os
@@ -264,6 +263,29 @@ def _int(v):
         return 0
 
 
+class Ranks:
+    """Unique donor DupeScores from health: 10 + 80 * alive share (unknown = 1.0), always below the primary's
+    100; equal health counts down (90, 89, ...). nzbget tries donors and backups by highest DupeScore."""
+
+    def __init__(self):
+        self.used = set()
+
+    def take(self, alive):
+        score = 10 + round(80 * (1.0 if alive is None else alive))
+        while score in self.used:
+            score -= 1
+        self.used.add(score)
+        return score
+
+    def release(self, score):
+        self.used.discard(score)
+
+
+def alive_of(health, v):
+    h = health.get(v[2].fingerprint)
+    return h.alive if h else None
+
+
 def pct(share):
     return "?" if share is None else "%d%%" % round(100 * share)
 
@@ -455,16 +477,26 @@ class Proxy:
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
         fast, slow = live[:n_fast], live[n_fast:]
-        scores, added = itertools.count(90, -1), 0  # always below the primary's 100
+        ranks, added, fast_ids = Ranks(), 0, {}
         for v in fast:  # quick: probe-alive donors go to nzbget right away
-            added += self.add_donor(key, category, path, auth, v, next(scores), probe, "fast", stats)
-        for i, v in enumerate(slow):  # then each remaining donor gets its full sample before it is added
-            if added >= cfg.donor_cap:
-                stats["over-cap"] = len(slow) - i
+            score = ranks.take(alive_of(probe, v))
+            donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
+            added += donor_id != 0
+            if donor_id > 0:
+                fast_ids[v[2].fingerprint] = (donor_id, score)
+        for i, v in enumerate(fast + slow):  # then every donor's full sample: refine fast ones, add the rest
+            if v in slow and added >= cfg.donor_cap:
+                stats["over-cap"] = len(fast + slow) - i
                 break
+            if not servers and v in fast:
+                continue
             h = self.health(servers, title, {v[2].fingerprint: v[2].message_ids}, full=True)
-            if not self.dead(v, h, stats, "full sample"):
-                added += self.add_donor(key, category, path, auth, v, next(scores), h, "checked", stats)
+            if v[2].fingerprint in fast_ids:
+                self.rescore(path, auth, v, fast_ids[v[2].fingerprint], h, ranks, stats)
+            elif v in slow and not self.dead(v, h, stats, "full sample"):
+                donor_id = self.add_donor(key, category, path, auth, v, ranks.take(alive_of(h, v)), h, "checked",
+                                          stats)
+                added += donor_id != 0
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -498,28 +530,48 @@ class Proxy:
                  h.error)
         return True
 
+    def rescore(self, path, auth, v, added, health, ranks, stats):
+        """After its full sample, move a fast donor's DupeScore (and DupeAlive) to its real health."""
+        donor_id, old = added
+        h = health.get(v[2].fingerprint)
+        if h is None or h.alive is None:
+            return
+        dead = h.alive < self.cfg.donor_min_alive
+        ranks.release(old)
+        new = 1 if dead else ranks.take(h.alive)
+        if dead:
+            stats["dead"] += 1
+        alive = "DupeAlive=%s" % pct(h.alive)
+        for kind in ("History", "Group"):  # donors normally sit in history as dupe backups
+            if self.rpc_call(path, auth, "editqueue", [kind + "SetDupeScore", str(new), [donor_id]]):
+                self.rpc_call(path, auth, "editqueue", [kind + "SetParameter", alive, [donor_id]])
+                break
+        log.info("rescored donor nzbid=%d %s [%s]: score %d -> %d, alive=%s (full sample%s)", donor_id, v[0].title,
+                 v[0].indexer, old, new, pct(h.alive), ", dead" if dead else "")
+
     def add_donor(self, key, category, path, auth, v, score, health, how, stats):
-        """Append one donor (or log it in dry run); returns 1 if it counts as added."""
+        """Append one donor (or log it in dry run); returns its NZBID, -1 in dry run, 0 if not added."""
         r, data, ci = v
         h = health.get(ci.fingerprint)
         desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s] (%s)" % (
             score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
         if self.cfg.dry_run:
             log.info("DRY-RUN would add donor %s", desc)
-            return 1
+            return -1
         with self.state.lock:
             if self.state.sent(key, ci.fingerprint):
                 stats["already-sent"] += 1
                 return 0
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
-            params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", []]
+            pp = [{"Name": "DupeAlive", "Value": pct(h.alive)}] if h and h.alive is not None else []
+            params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", pp]
             donor_id = self.rpc(path, auth, "append", params)
             if donor_id <= 0:
                 stats["append"] += 1
                 return 0
             self.state.record(key, ci.fingerprint, donor_id)
         log.info("added donor nzbid=%d %s", donor_id, desc)
-        return 1
+        return donor_id
 
     def rpc_call(self, path, auth, method, params):
         """JSON-RPC call to nzbget with Hydra's own path + credentials; raw result or None."""

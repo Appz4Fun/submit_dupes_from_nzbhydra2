@@ -43,6 +43,10 @@ class _NzbgetHandler(BaseHTTPRequestHandler):
                 o.appends.append({"id": nzbid, "params": params, "path": self.path,
                                   "auth": self.headers.get("Authorization"), "time": time.time()})
             result = nzbid
+        elif method == "editqueue":
+            with o.lock:
+                o.edits.append(tuple(params))
+            result = True
         else:
             result = {"version": "27.0", "writelog": True, "config": o.config_entries}.get(method, [])
         o.last_response = json.dumps({"version": "1.1", "id": req.get("id"), "result": result}, indent=1).encode()
@@ -66,7 +70,16 @@ class FakeNzbget:
         self.require_auth = None
         self.last_response = None
         self.config_entries = []
+        self.edits = []
         serve(_NzbgetHandler, self)
+
+    def final_scores(self):
+        """{nzbid: DupeScore after any (History|Group)SetDupeScore edits}."""
+        scores = {a["id"]: a["params"][7] for a in self.appends}
+        for cmd, param, ids in self.edits:
+            if cmd.endswith("SetDupeScore"):
+                scores.update((i, int(param)) for i in ids)
+        return scores
 
 
 class _HydraHandler(BaseHTTPRequestHandler):

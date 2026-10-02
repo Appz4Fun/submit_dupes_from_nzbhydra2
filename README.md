@@ -51,7 +51,12 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      - its largest file has a readable name that PTT says is **another release** (for example 720p
        inside a "1080p" listing). Obfuscated inner names are accepted on the strength of the title.
   6. Append the donors (all of them, or up to `MAX_DONORS`), ranked closest size first, then grabs, then age. Each gets the
-     same DupeKey, score 90, 89, …, the same category, and `AddPaused=false`. nzbget has
+     same DupeKey, the same category, `AddPaused=false` and a **health-ranked DupeScore**: `10 + 80 × alive share`
+     (90 for 100% found, about 26 for 20%), unique and always below the primary's 100. Equal health counts down from
+     there (90, 89, …). PR 850 tries donors in DupeScore order, and nzbget's failover picks the highest-scored backup,
+     so the healthiest postings are used first. Each donor also gets a `DupeAlive=NN%` PP parameter. A fast donor
+     scored from its 10-article probe is rescored in place (`HistorySetDupeScore`) after its full sample. If the
+     full sample shows it dead, its score drops to 1. nzbget has
      `DupeCheck=yes`, so it moves them straight to history as dupe backups. That makes them donors,
      and also re-download candidates if the primary fails.
 - **Donor health ([cyclops](https://github.com/Appz4Fun/cyclops), vendored).** The proxy reads nzbget's

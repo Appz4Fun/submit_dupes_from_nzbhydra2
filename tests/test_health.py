@@ -1,3 +1,4 @@
+import base64
 import logging
 
 import donor_health as dh
@@ -145,3 +146,48 @@ def test_slow_phase_drops_mostly_dead_donor(make_proxy, nzbget, hydra, caplog):
     p.wait_idle(30)
     assert len(nzbget.appends) == 1
     assert "'dead': 1" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_dupescore_ranks_donors_by_alive_share(make_proxy, nzbget, hydra):
+    prim = release(TITLE, prefix="p")
+    partial, full = release(TITLE, prefix="h", n_files=11), release(TITLE, prefix="f", n_files=12)
+    pids = article_ids(partial)
+    news = FakeNntp(article_ids(prim) + article_ids(full) + pids[: len(pids) * 6 // 10])   # 60% vs 100%
+    nzbget.config_entries = news.config(1)
+    hydra.add(TITLE, partial, grabs=99)          # closer in size and more grabs: would rank first without health
+    hydra.add(TITLE, full, grabs=1)
+    p = make_proxy(health_percent=100)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    by_prefix = {base64.b64decode(a["params"][1]).count(b">f-") > 0: a for a in nzbget.appends[1:]}
+    full_d, partial_d = by_prefix[True], by_prefix[False]
+    final = nzbget.final_scores()
+    assert final[full_d["id"]] == 90
+    assert 56 <= final[partial_d["id"]] <= 60                   # 10 + 80 * 0.6 after the full sample
+    assert final[full_d["id"]] > final[partial_d["id"]]
+    assert any(p.get("Name") == "DupeAlive" for p in full_d["params"][9])
+    assert any(c == "HistorySetParameter" and pr == "DupeAlive=60%" for c, pr, _ in nzbget.edits)
+
+
+def test_fast_donor_found_dead_by_full_sample_is_demoted(make_proxy, nzbget, hydra):
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    ids = article_ids(donor)
+    import donor_health as dh
+    probe = set(dh.sample(ids, 100)[:10])                     # exactly the probe articles survive
+    news = FakeNntp(article_ids(prim) + list(probe))
+    nzbget.config_entries = news.config(1)
+    hydra.add(TITLE, donor)
+    p = make_proxy(health_percent=100)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    (d,) = nzbget.appends[1:]
+    assert d["params"][7] == 90 and nzbget.final_scores()[d["id"]] == 1
+
+
+def test_dupescore_unique_and_below_primary(make_proxy, nzbget, hydra):
+    for i in range(4):
+        hydra.add(TITLE, release(TITLE, prefix="u%d" % i))
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(release(TITLE, prefix="p"), title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert [a["params"][7] for a in nzbget.appends[1:]] == [90, 89, 88, 87]
