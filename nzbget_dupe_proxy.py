@@ -56,7 +56,8 @@ class Config:
     health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
     health_connections: int = 8   # per news server (and <= half its nzbget Connections)
-    health_budget: float = 120.0  # s for all health STATs of one append; unanswered = unknown (donor kept)
+    health_budget: float = 120.0  # s per health pass (probe of all donors / full sample of one donor)
+    fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -435,66 +436,79 @@ class Proxy:
                         verified.append((r, data, ci))
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
-        alive = self.check_health(path, auth, title, info, verified, stats)
-        verified = [v for v in verified if v[2].fingerprint in alive]
-        verified.sort(key=lambda v: (-round(alive[v[2].fingerprint] or 0, 1), dist(v[2].total_bytes), -v[0].grabs,
-                                     -v[0].date))
-        if len(verified) > cfg.max_donors:
-            stats["over-cap"] = len(verified) - cfg.max_donors
-        added = 0
-        for score, (r, data, ci) in zip(range(90, 0, -1), verified[:cfg.max_donors]):
-            name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
-            desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s]" % (
-                score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(alive[ci.fingerprint]))
-            if cfg.dry_run:
-                log.info("DRY-RUN would add donor %s", desc)
-                continue
-            with self.state.lock:
-                if self.state.sent(key, ci.fingerprint):
-                    stats["already-sent"] += 1
-                    continue
-                params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", []]
-                donor_id = self.rpc(path, auth, "append", params)
-                if donor_id > 0:
-                    self.state.record(key, ci.fingerprint, donor_id)
-                    added += 1
-                    log.info("added donor nzbid=%d %s", donor_id, desc)
-                else:
-                    stats["append"] += 1
+        verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
+        servers = self.news_servers(path, auth, title) if cfg.health_percent and verified else []
+        groups = dict({ci.fingerprint: ci.message_ids for _, _, ci in verified}, primary=info.message_ids)
+        probe = self.health(servers, title, groups, full=False)
+        if probe:
+            log.info("health %s: primary alive=%s (probe) on %d server(s)", title, pct(probe["primary"].alive),
+                     len(servers))
+        live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
+        fast, slow = live[:min(cfg.fast_donors, cfg.max_donors)], live[min(cfg.fast_donors, cfg.max_donors):]
+        scores, added = iter(range(90, 0, -1)), 0
+        for v in fast:  # quick: probe-alive donors go to nzbget right away
+            added += self.add_donor(key, category, path, auth, v, next(scores), probe, "fast", stats)
+        for i, v in enumerate(slow):  # then each remaining donor gets its full sample before it is added
+            if added >= cfg.max_donors:
+                stats["over-cap"] = len(slow) - i
+                break
+            h = self.health(servers, title, {v[2].fingerprint: v[2].message_ids}, full=True)
+            if not self.dead(v, h, stats, "full sample"):
+                added += self.add_donor(key, category, path, auth, v, next(scores), h, "checked", stats)
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
-                 "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified), added,
-                 " dry_run would_add=%d" % min(len(verified), cfg.max_donors) if cfg.dry_run else "",
+                 "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
+                 0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
 
-    def check_health(self, path, auth, title, info, verified, stats):
-        """Sampled STAT of primary + donors on nzbget's news servers -> {donor fingerprint: alive share|None}.
-        Donors below DONOR_MIN_ALIVE are counted as 'dead' and left out."""
-        alive = {ci.fingerprint: None for _, _, ci in verified}
-        if not self.cfg.health_percent or not verified:
-            return alive
+    def news_servers(self, path, auth, title):
         servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
                                                           self.cfg.health_connections, self.cfg.timeout)
         if not servers:
             log.info("health check skipped for %s: no active news servers in nzbget config", title)
-            return alive
+        return servers
+
+    def health(self, servers, title, groups, full):
+        """{key: Health} from sampled STATs on all news servers; {} when unchecked (health is advisory)."""
+        if not servers:
+            return {}
         try:
-            t0 = time.time()
-            groups = dict({ci.fingerprint: ci.message_ids for _, _, ci in verified}, primary=info.message_ids)
-            res = donor_health.check_many(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget)
-            log.info("health %s: primary alive=%s on %d server(s), %d nzb(s) checked in %.1fs", title,
-                     pct(res["primary"].alive), len(servers), len(groups), time.time() - t0)
-            for r, _, ci in verified:
-                h = res[ci.fingerprint]
-                if h.alive is not None and h.alive < self.cfg.donor_min_alive:
-                    stats["dead"] += 1
-                    del alive[ci.fingerprint]
-                    log.info("dropping dead donor %s [%s]: alive=%s (%d/%d sampled articles on no server)",
-                             r.title, r.indexer, pct(h.alive), h.missing, h.checked)
-                else:
-                    alive[ci.fingerprint] = h.alive
-        except Exception as e:  # health is advisory: never lose donors to a checker failure
+            return donor_health.check_many(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget,
+                                           full=full)
+        except Exception as e:
             log.warning("health check failed for %s: %s", title, type(e).__name__)
-        return alive
+            return {}
+
+    def dead(self, v, health, stats, phase):
+        h = health.get(v[2].fingerprint)
+        if h is None or h.alive is None or h.alive >= self.cfg.donor_min_alive:
+            return False
+        stats["dead"] += 1
+        log.info("dropping dead donor %s [%s] after %s: alive=%s (%d/%d sampled articles on no server)",
+                 v[0].title, v[0].indexer, phase, pct(h.alive), h.missing, h.checked)
+        return True
+
+    def add_donor(self, key, category, path, auth, v, score, health, how, stats):
+        """Append one donor (or log it in dry run); returns 1 if it counts as added."""
+        r, data, ci = v
+        h = health.get(ci.fingerprint)
+        desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s] (%s)" % (
+            score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
+        if self.cfg.dry_run:
+            log.info("DRY-RUN would add donor %s", desc)
+            return 1
+        with self.state.lock:
+            if self.state.sent(key, ci.fingerprint):
+                stats["already-sent"] += 1
+                return 0
+            name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
+            params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", []]
+            donor_id = self.rpc(path, auth, "append", params)
+            if donor_id <= 0:
+                stats["append"] += 1
+                return 0
+            self.state.record(key, ci.fingerprint, donor_id)
+        log.info("added donor nzbid=%d %s", donor_id, desc)
+        return 1
 
     def rpc_call(self, path, auth, method, params):
         """JSON-RPC call to nzbget with Hydra's own path + credentials; raw result or None."""

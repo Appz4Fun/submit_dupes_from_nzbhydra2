@@ -91,3 +91,44 @@ def test_check_many_budget_leaves_unknown():
 def test_alive_needs_enough_definite_answers():
     assert dh.Health(300, 0, 1, 299).alive is None
     assert dh.Health(300, 0, 5, 295).alive == 0.0
+
+
+def test_check_many_probe_only():
+    ids = ["a%d@x" % i for i in range(2000)]
+    servers = dh.servers_from_nzbget_config(FakeNntp(ids).config(1))
+    assert dh.check_many(servers, {"k": ids}, percent=2.0, probe=10, full=False)["k"].checked == 10
+
+
+def _donor_appends(nzbget):
+    return [a for a in nzbget.appends[1:]]
+
+
+def test_fast_donors_first_then_checked_one_by_one(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim = release(TITLE, prefix="p")
+    donors = [release(TITLE, prefix="d%d" % i) for i in range(4)]
+    news = FakeNntp([m for d in donors + [prim] for m in article_ids(d)])
+    nzbget.config_entries = news.config(1)
+    for i, d in enumerate(donors):
+        hydra.add(TITLE, d, grabs=10 - i)
+    p = make_proxy(fast_donors=2)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    added = [r.getMessage() for r in caplog.records if r.getMessage().startswith("added donor")]
+    assert len(added) == 4
+    assert [m.split("(")[-1] for m in added] == ["fast)", "fast)", "checked)", "checked)"]
+    assert [a["params"][7] for a in _donor_appends(nzbget)] == [90, 89, 88, 87]
+
+
+def test_slow_phase_drops_mostly_dead_donor(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    ids = article_ids(donor)
+    news = FakeNntp(article_ids(prim) + ids[: len(ids) * 3 // 10])         # only 30% of the donor survives
+    nzbget.config_entries = news.config(1)
+    hydra.add(TITLE, donor)
+    p = make_proxy(fast_donors=0)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 1
+    assert "'dead': 1" in " ".join(r.getMessage() for r in caplog.records)

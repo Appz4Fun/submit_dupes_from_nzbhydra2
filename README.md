@@ -58,8 +58,10 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
   each verified donor (and the primary, for the log) it first `STAT`s a 10-article probe. An NZB with none of
   those on any server is dead, and its full sample is skipped. Every other NZB then gets a 2% sample (at least
   20 articles, at most 300). Each article is tried on every active server in turn, and it counts as missing
-  only when all of them answer 430. All the checks share one connection pool. A donor whose sample is mostly
-  gone is dropped as `dead`. The survivors are ranked by how much of the sample is alive.
+  only when all of them answer 430. A donor whose sample is mostly gone is dropped as `dead`. To get donors
+  into nzbget quickly, every candidate is probed together in one connection pool. The best `FAST_DONORS` (5)
+  that pass the probe are appended at once. Each remaining candidate then gets its full sample and is appended
+  as soon as it passes, until `MAX_DONORS`.
 - **The real content check is nzbget's.** Before DupeArticleFallback uses any donor bytes, it fetches
   probe articles and compares at least 16 KiB of data. A donor whose name matches but whose content
   differs only costs a few probe articles; it cannot corrupt the download.
@@ -94,7 +96,8 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `HEALTH_PERCENT` | `2` | STAT this % of each NZB's articles (min 20, max 300) on **every** active news server from nzbget's config; `0` = off |
 | `DONOR_MIN_ALIVE` | `0.5` | drop a donor (`rejected: dead`) when less than this share of its sampled articles exists on any server |
 | `HEALTH_CONNECTIONS` | `8` | connections per news server for the health check, capped at half of nzbget's own `Connections` for that server |
-| `HEALTH_BUDGET` | `120` | seconds for all health STATs of one append; articles still unanswered count as unknown and the donor is kept |
+| `HEALTH_BUDGET` | `120` | seconds per health pass: the quick probe of all donors, or the full sample of one donor. Articles still unanswered count as unknown and the donor is kept |
+| `FAST_DONORS` | `5` | donors appended right after the quick probe. The rest are appended one at a time, each after its full sample |
 | `STATE_DIR` | `/var/lib/nzbget-dupe-proxy` | state file location |
 | `ENABLED` | `true` | `false` = pure pass-through (kill switch) |
 | `DRY_RUN` | `0` | `1` = discover and log donors, append only the primary (also `--dry-run`) |

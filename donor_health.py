@@ -92,21 +92,24 @@ def _tally(ids, status):
     return Health(len(ids), got.count("present"), got.count("missing"), got.count("error"))
 
 
-def check_many(servers, groups, percent=2.0, probe=10, budget=120.0):
+def check_many(servers, groups, percent=2.0, probe=10, budget=120.0, full=True):
     """{key: message ids} -> {key: Health}. Each NZB first gets `probe` articles checked; one with none
-    on any server is dead and skips its full `percent` sample. Unanswered ids after `budget` s: unknown."""
+    on any server is dead and skips its full `percent` sample (`full=False`: probe only).
+    Unanswered ids after `budget` s: unknown."""
     deadline = time.monotonic() + budget
-    full = {k: sample(ids, percent) for k, ids in groups.items()}
-    probes = {k: f[:probe] if len(f) >= probe else sample(groups[k], 0, probe, probe) for k, f in full.items()}
+    samples = {k: sample(ids, percent) for k, ids in groups.items()}
+    probes = {k: f[:probe] if len(f) >= probe else sample(groups[k], 0, probe, probe) for k, f in samples.items()}
     status = {}
     _stat_all(servers, list(dict.fromkeys(i for p in probes.values() for i in p)), status, deadline)
+    if not full:
+        return {k: _tally(p, status) for k, p in probes.items()}
     for k, p in probes.items():
         h = _tally(p, status)
         if h.present == 0 and h.missing >= MIN_KNOWN:
-            full[k] = p
-    _stat_all(servers, [i for i in dict.fromkeys(i for f in full.values() for i in f) if i not in status], status,
+            samples[k] = p
+    _stat_all(servers, [i for i in dict.fromkeys(i for f in samples.values() for i in f) if i not in status], status,
               deadline)
-    return {k: _tally(f, status) for k, f in full.items()}
+    return {k: _tally(f, status) for k, f in samples.items()}
 
 
 def availability(servers, message_ids, percent=2.0):
