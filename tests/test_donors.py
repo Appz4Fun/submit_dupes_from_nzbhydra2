@@ -321,3 +321,18 @@ def test_persistent_indexer_error_still_rejected(proxy, nzbget, hydra, caplog):
     append(proxy, primary())
     assert donors(nzbget) == []
     assert "'parse': 1" in summary(caplog)
+
+
+def test_finds_group_postings_renamed_by_other_indexers_beyond_the_first_page(proxy, nzbget, hydra):
+    for i in range(120):                                   # other groups fill the first page of the short query
+        hydra.add("Show.S01E01.1080p.WEB.H264-OTHER%d" % i, release(TITLE, prefix="o%d" % i), grabs=500)
+    hydra.add("Show.S01E01.The.Pilot.1080p.WEB.H.264-GRP", release(TITLE, prefix="g"))  # other indexer's name
+    append(proxy, primary())
+    assert len(donors(nzbget)) == 1
+
+
+def test_hydra_search_reads_all_pages(proxy, hydra):
+    for i in range(250):
+        hydra.add("Show.S01E01.1080p.WEB-X%d" % i, b"<nzb/>", size=1)
+    assert len(proxy.hydra_search({"t": "search", "q": "show s01e01"})) == 250
+    assert [q for q in hydra.queries if "offset=200" in q]

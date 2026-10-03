@@ -89,7 +89,15 @@ class _HydraHandler(BaseHTTPRequestHandler):
         if self.path.startswith("/api"):
             o.queries.append(self.path)
             time.sleep(o.delay)
-            items = "".join(o.item_xml(i, it) for i, it in enumerate(o.items))
+            import re
+            from urllib.parse import parse_qs, urlparse
+            qs = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+            words = qs.get("q", "").lower().split()
+            norm = lambda t: " ".join(re.split(r"[\s._\-()+,\[\]]+", t.lower()))  # noqa: E731
+            hits = [(i, it) for i, it in enumerate(o.items)
+                    if all(w in norm(it.title).split() for w in words)]          # like an indexer: every word
+            offset, limit = int(qs.get("offset", 0)), int(qs.get("limit", 100))
+            items = "".join(o.item_xml(i, it) for i, it in hits[offset:offset + limit])
             body = ('<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" '
                     'xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel>%s</channel></rss>' % items).encode()
             return self._send(200, body)

@@ -35,6 +35,7 @@ log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
 STATE_TTL = 30 * 86400   # s: forget groups after this
 FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
+SEARCH_PAGE, SEARCH_PAGES = 100, 5  # Hydra results per request, and pages read when a query fills them
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
 EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
                     r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
@@ -390,7 +391,17 @@ class Proxy:
             log.exception("donor discovery crashed for key=%s", args[0])
 
     def hydra_search(self, params):
-        query = urllib.parse.urlencode(dict(params, limit=100, apikey=self.cfg.hydra_apikey))
+        """All results of one newznab query, reading further pages while a page comes back full."""
+        out = []
+        for page in range(SEARCH_PAGES):
+            got = self._hydra_page(dict(params, limit=SEARCH_PAGE, offset=page * SEARCH_PAGE))
+            out += got
+            if len(got) < SEARCH_PAGE:
+                break
+        return out
+
+    def _hydra_page(self, params):
+        query = urllib.parse.urlencode(dict(params, apikey=self.cfg.hydra_apikey))
         with urllib.request.urlopen(self.cfg.hydra_url + "/api?" + query, timeout=self.cfg.timeout) as r:
             root = safe_xml(r.read())
         if root.tag == "error":
@@ -408,10 +419,12 @@ class Proxy:
         return out
 
     def queries(self, title, info):
-        norm, short = normalize_title(title), short_query(title)
+        norm, short, group = normalize_title(title), short_query(title), release_attrs(title)["group"]
         qs = [{"t": "search", "q": norm.replace(".", " ")}]
         if short and short != qs[0]["q"]:
             qs.append({"t": "search", "q": short})
+        if short and group:  # other indexers often rename a release; the group narrows to its postings
+            qs.append({"t": "search", "q": "%s %s" % (short, group)})
         imdb, tvdb = (re.sub(r"\D", "", info.meta.get(k, "")) for k in ("imdb", "tvdb"))
         if imdb:
             qs.append({"t": "movie", "imdbid": imdb})
