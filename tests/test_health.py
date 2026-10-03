@@ -552,3 +552,39 @@ def test_primary_that_already_left_the_queue_is_reported_plainly(make_proxy, nzb
     post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
     assert "already left the queue" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_server_answering_451_for_missing_articles_keeps_its_connection(monkeypatch):
+    # super.newsgroupdirect.com says 451 (not 430) for a missing article: an answer, not a broken connection
+    monkeypatch.setattr(dh, "SERVER_RETRY_AFTER", 30.0)
+    import time
+    ids = ["q%d@x" % i for i in range(20)]
+    says_451, says_430 = FakeNntp(missing_code=451), FakeNntp()
+    servers = dh.servers_from_nzbget_config(says_451.config(1) + says_430.config(2), max_conns=1)
+    t0 = time.time()
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=20, body_percent=0)["n"]
+    assert h.missing == 20 and time.time() - t0 < 3
+    assert says_451.sessions == 1 and len(says_451.stats) == 20
+
+
+def test_paused_server_does_not_hold_up_missing_articles(monkeypatch):
+    monkeypatch.setattr(dh, "SERVER_RETRY_AFTER", 30.0)
+    import time
+    ids = ["h%d@x" % i for i in range(20)]
+    ok, broken = FakeNntp(), FakeNntp(password="right")
+    entries = [e if e["Name"] != "Server2.Password" else {"Name": e["Name"], "Value": "wrong"}
+               for e in ok.config(1) + broken.config(2)]
+    t0 = time.time()
+    h = dh.check_many(dh.servers_from_nzbget_config(entries), {"n": ids}, percent=100, probe=20, body_percent=0)["n"]
+    assert h.missing == 20 and time.time() - t0 < 5
+
+
+def test_budget_end_counts_articles_most_servers_miss_as_missing():
+    # present articles settle at the first hit, missing ones wait for every server: when the budget ends
+    # first, leaving the unsettled ones out would make a half-dead NZB look whole
+    ids = ["g%d@x" % i for i in range(20)]
+    a, b, slow = FakeNntp(ids[:10]), FakeNntp(), FakeNntp()
+    slow.delay = 3.0
+    servers = dh.servers_from_nzbget_config(a.config(1) + b.config(2) + slow.config(3), max_conns=1)
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=20, body_percent=0, budget=1.0)["n"]
+    assert (h.present, h.missing) == (10, 10) and h.alive == 0.5

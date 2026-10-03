@@ -215,6 +215,7 @@ class _NntpHandler(socketserver.StreamRequestHandler):
         o = self.server.owner
         with o.lock:
             o.active += 1
+            o.sessions += 1
             o.max_active = max(o.max_active, o.active)
         try:
             self._session(o)
@@ -237,9 +238,9 @@ class _NntpHandler(socketserver.StreamRequestHandler):
                     (o.stats if verb == "STAT" else o.bodies).append(mid)
                 has = mid in o.articles and not (verb == "BODY" and mid in o.soft_dead)
                 if verb == "STAT":
-                    self.wfile.write(("223 0 <%s>\r\n" % mid if has else "430 no such article\r\n").encode())
+                    self.wfile.write(("223 0 <%s>\r\n" % mid if has else "%d no such article\r\n" % o.missing_code).encode())
                 else:
-                    self.wfile.write(b"222 0 body\r\n" + _yenc_body() if has else b"430 no such article\r\n")
+                    self.wfile.write(b"222 0 body\r\n" + _yenc_body() if has else b"%d no such article\r\n" % o.missing_code)
             elif cmd == "QUIT":
                 self.wfile.write(b"205 bye\r\n")
                 return
@@ -250,10 +251,12 @@ class _NntpHandler(socketserver.StreamRequestHandler):
 class FakeNntp:
     """Plain-TCP NNTP server answering STAT/BODY from a set of message-ids (without <>).
 
-    soft_dead: ids whose STAT says 223 but whose BODY is gone (430). Tracks concurrent connections."""
+    soft_dead: ids whose STAT says 223 but whose BODY is gone (430). missing_code: the answer for a missing
+    article (some providers say 451, not 430). Tracks sessions and concurrent connections."""
 
-    def __init__(self, articles=(), password="pw", soft_dead=()):
+    def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430):
         self.articles, self.password, self.soft_dead = set(articles), password, set(soft_dead)
+        self.missing_code, self.sessions = missing_code, 0
         self.stats, self.bodies, self.delay = [], [], 0.0
         self.lock, self.active, self.max_active = threading.Lock(), 0, 0
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))

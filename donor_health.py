@@ -20,7 +20,7 @@ import threading
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
-from cyclops.verify_nzb import (AsyncNntpConnection, MissingArticleError, ServerConfig,  # noqa: E402
+from cyclops.verify_nzb import (AsyncNntpConnection, ServerConfig, normalize_message_id,  # noqa: E402
                                 validate_yenc_body)
 
 MIN_KNOWN = 5               # answered articles needed before judging an NZB
@@ -184,6 +184,9 @@ class _Pool:
         else:                                  # keep it (our own waiters pick it up from idle)
             self.idle.append(conn)
 
+    def paused(self):
+        return self.down_until > asyncio.get_running_loop().time()
+
     async def ask(self, mid, body):
         """This server's answer for one article: 'present', 'missing', 'bodybad' or 'error'."""
         wait = self.down_until - asyncio.get_running_loop().time()
@@ -219,14 +222,19 @@ class _Pool:
 
     @staticmethod
     async def _ask(conn, mid, body):
-        if await conn.stat(mid) != 223:
-            return "missing"
+        """Any reply line is an answer on a healthy connection: 430 = missing; another code (some providers
+        say 451 for a missing article) = 'error' without dropping the connection. Only a failed connection
+        or a garbled reply raises (cyclops' own stat()/body() would close the connection on a 451)."""
+        await conn._connect_once()
+        code, _ = await conn._send_command("STAT %s" % normalize_message_id(mid))
+        if code != 223:
+            return "missing" if code == 430 else "error"
         if not body:
             return "present"
-        try:
-            return "present" if validate_yenc_body(await conn.body(mid)).ok else "bodybad"
-        except MissingArticleError:
+        code, _ = await conn._send_command("BODY %s" % normalize_message_id(mid))
+        if code != 222:
             return "bodybad"
+        return "present" if validate_yenc_body(await conn._read_multiline()).ok else "bodybad"
 
     async def close(self):
         await asyncio.gather(*self.inflight, return_exceptions=True)  # let requests in flight finish first
@@ -256,7 +264,10 @@ async def _check_nzb(pools, items, per_nzb, deadline):
             if final[i] is not None:
                 continue
             mid, body = items[i]
-            answer = await pool.ask(mid, body)
+            if pool.paused() and any(not q.paused() for q in pools if q is not pool):
+                answer = "error"  # a server in its pause abstains while others can answer: misses don't wait
+            else:
+                answer = await pool.ask(mid, body)
             votes[i][p] = answer
             soft[i] = soft[i] or answer == "bodybad"
             if answer == "present":
@@ -274,6 +285,10 @@ async def _check_nzb(pools, items, per_nzb, deadline):
     for w in walkers:  # requests still in flight are for articles already settled (or the budget ran out)
         w.cancel()
     await asyncio.gather(*walkers, return_exceptions=True)
+    for i in range(n):  # budget over: missing where most servers said so (present ones settle at once, so
+        misses = sum(v == "missing" for v in votes[i].values())  # leaving these out would inflate alive)
+        if final[i] is None and "present" not in votes[i].values() and 2 * misses >= len(pools):
+            final[i] = "missing"
     return Health(n, final.count("present"), final.count("missing"), final.count("error"),
                   sum(body for _, body in items), sum(soft[i] and final[i] != "present" for i in range(n)))
 
