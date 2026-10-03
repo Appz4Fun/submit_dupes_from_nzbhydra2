@@ -48,8 +48,11 @@ class _NzbgetHandler(BaseHTTPRequestHandler):
                 o.edits.append(tuple(params))
             result = o.editqueue_result
         else:
-            result = {"version": "27.0", "writelog": True, "config": o.config_entries}.get(method, [])
+            result = {"version": "27.0", "writelog": True, "config": o.config_entries,
+                      "history": o.history_items, "listgroups": o.queue_items}.get(method, [])
         o.last_response = json.dumps({"version": "1.1", "id": req.get("id"), "result": result}, indent=1).encode()
+        if method == "append":
+            o.appends[-1]["response"] = o.last_response
         self._send(200, o.last_response, "application/json")
 
     do_GET = do_POST
@@ -72,6 +75,7 @@ class FakeNzbget:
         self.config_entries = []
         self.edits = []
         self.editqueue_result = True
+        self.history_items, self.queue_items = [], []
         serve(_NzbgetHandler, self)
 
     def final_scores(self):

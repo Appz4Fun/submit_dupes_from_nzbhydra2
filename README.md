@@ -45,11 +45,26 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      packaging. `SIZE_TOLERANCE` can add a cap.
   4. Fetch candidates 4 at a time (all of them, or at most `3 x MAX_DONORS` when a cap is set). The closest size goes first, then more
      grabs, and one posting per distinct size comes before repeats.
-  5. Reject a candidate if either holds:
+  5. Reject a candidate if any of these holds:
      - it shares at least half its message-IDs with the primary or with a donor already accepted (the same posting
        from another indexer, sometimes re-listed with a re-uploaded segment);
      - its largest file has a readable name that PTT says is **another release** (for example 720p
        inside a "1080p" listing). Obfuscated inner names are accepted on the strength of the title.
+     - **nzbget already has that posting** (`in-nzbget`): the proxy reads the NZBs nzbget keeps in its
+       NzbDir for every queue/history item with this DupeKey or the same release name, including earlier
+       grabs through Hydra's plain NZBGet downloader, and compares article IDs.
+     - it was **found dead on an earlier grab** (`known-dead`, remembered for 3 days in the state file), so
+       re-grabs don't re-check postings that are already known to be gone.
+
+     Both checks compare a compact **sketch** of each posting: the 64 smallest CRC32 hashes of its
+     message-IDs. Two NZBs that share most of their articles share most of their sketch, even when a posting
+     was re-listed with a re-uploaded segment; distinct postings share almost none. Sketches of the NZBs
+     nzbget keeps are cached by file, path, mtime and size, and are read while the candidates are being
+     fetched.
+
+     A listing whose downloaded NZB doesn't match the size Hydra listed is counted as `listing-mismatch`
+     and logged. Some indexers (seen with Square Eyed and nzb.life) serve another indexer's NZB for a
+     listing. The NZB is still deduped by its article IDs, so it can't be added twice.
   6. Append the donors (all of them, or up to `MAX_DONORS`), ranked closest size first, then grabs, then age. Each gets the
      same DupeKey, the same category, `AddPaused=false` and a **health-ranked DupeScore**: `10 + 80 × alive share`
      (90 for 100% found, about 26 for 20%), unique and always below the primary's 100. Equal health counts down from
@@ -68,7 +83,9 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
     yEnc validation for a random `BODY_PERCENT` (20%) of the articles. The first real hit (223, or valid data
     for a body check) marks the article found, every server skips it from then on, and each server moves on
     at its own pace, so slow servers never hold up fast ones. An article is missing only when every server
-    said no. A `STAT` 223 whose `BODY` is gone or corrupt counts as no data. A request already in flight for
+    said no. A `STAT` 223 whose `BODY` is gone or corrupt counts as no data. An article counts as an error,
+    not as missing, only when every server failed to answer. A donor is dropped or remembered as dead only
+    on at least 5 definite misses, so a network outage can't blacklist live postings. A request already in flight for
     an article that another server found meanwhile is left to finish, and its answer is ignored. Cancelling it
     would mean dropping and reopening the connection. A server that fails 3 times in a row pauses for 30 s,
     then is asked again.

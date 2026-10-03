@@ -51,7 +51,7 @@ def test_primary_response_bytes_unchanged(proxy, nzbget):
     status, _, resp = post(proxy.url + "/jsonrpc", append_body(primary(), title=TITLE, rid="406397322"), auth=AUTH)
     proxy.wait_idle(10)
     assert len(nzbget.appends) == 1
-    assert resp == nzbget.last_response
+    assert resp == nzbget.appends[0]["response"]
     assert json.loads(resp)["id"] == "406397322"
 
 
@@ -336,3 +336,58 @@ def test_hydra_search_reads_all_pages(proxy, hydra):
         hydra.add("Show.S01E01.1080p.WEB-X%d" % i, b"<nzb/>", size=1)
     assert len(proxy.hydra_search({"t": "search", "q": "show s01e01"})) == 250
     assert [q for q in hydra.queries if "offset=200" in q]
+
+
+def _nzbget_already_has(nzbget, tmp_path, name, nzb, key=KEY, copies=1):
+    nzbdir = tmp_path / "nzbs"
+    nzbdir.mkdir(exist_ok=True)
+    for c in range(copies):
+        (nzbdir / ("%s.nzb%s.queued" % (name, "" if c == 0 else ".%d" % (c + 1)))).write_bytes(nzb)
+    nzbget.config_entries = [{"Name": "MainDir", "Value": str(tmp_path)}, {"Name": "NzbDir", "Value": "${MainDir}/nzbs"}]
+    nzbget.history_items.append({"NZBID": 7, "Kind": "NZB", "NZBName": name, "NZBFilename": name + ".nzb",
+                                 "DupeKey": key, "Status": "FAILURE/PAR"})
+
+
+def test_posting_nzbget_already_has_is_not_sent_again(proxy, nzbget, hydra, tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    donor = release(TITLE, prefix="r")
+    _nzbget_already_has(nzbget, tmp_path, "Show S01E01 1080p WEB H264-GRP", donor)    # e.g. an earlier grab
+    hydra.add(TITLE, donor)
+    hydra.add(TITLE, release(TITLE, prefix="n"))
+    append(proxy, primary())
+    assert [base64.b64decode(d["params"][1]) for d in donors(nzbget)] == [release(TITLE, prefix="n")]
+    assert "'in-nzbget': 1" in summary(caplog)
+
+
+def test_same_release_under_another_key_also_counts(proxy, nzbget, hydra, tmp_path):
+    donor = release(TITLE, prefix="r")
+    _nzbget_already_has(nzbget, tmp_path, TITLE, donor, key="", copies=2)               # plain NZBGet grab, no key
+    hydra.add(TITLE, donor)
+    append(proxy, primary())
+    assert donors(nzbget) == []
+
+
+def test_listing_that_serves_a_different_nzb_is_flagged(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor, size=nzb_total(donor) * 2)                                  # indexer lists 2x the size
+    append(proxy, primary())
+    assert len(donors(nzbget)) == 1                                                    # still a real, new posting
+    msgs = " ".join(r.getMessage() for r in caplog.records)
+    assert "'listing-mismatch': 1" in summary(caplog) and "served a different NZB" in msgs
+
+
+def test_mismatched_listing_flagged_even_when_it_is_a_known_posting(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, primary(), size=nzb_total(primary()) * 2)       # serves the primary's NZB for another listing
+    append(proxy, primary())
+    s = summary(caplog)
+    assert "'same-posting': 1" in s and "'listing-mismatch': 1" in s
+
+
+def test_nzbget_copy_with_reuploaded_segment_still_counts(proxy, nzbget, hydra, tmp_path):
+    donor = release(TITLE, prefix="r")
+    _nzbget_already_has(nzbget, tmp_path, TITLE, donor.replace(b"r-0-0@x", b"refill@x"))
+    hydra.add(TITLE, donor)
+    append(proxy, primary())
+    assert donors(nzbget) == []

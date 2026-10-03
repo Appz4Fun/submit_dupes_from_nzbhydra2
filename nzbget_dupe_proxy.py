@@ -7,7 +7,9 @@ nzbget's DupeArticleFallback. "Same release" is decided by PTT-parsed release na
 resolution, source, codec, audio, HDR, ...), not by size. Python 3 stdlib + vendored PTT (pure Python)."""
 import base64
 import functools
+import glob
 import hashlib
+import heapq
 import itertools
 import json
 import logging
@@ -19,6 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from collections import Counter, namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, fields
@@ -34,6 +37,7 @@ import donor_health  # noqa: E402  (sampled STAT on all news servers, vendored c
 log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
 STATE_TTL = 30 * 86400   # s: forget groups after this
+DEAD_TTL = 3 * 86400     # s: remember postings found dead (taken-down articles do not come back)
 FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
 SEARCH_PAGE, SEARCH_PAGES = 100, 5  # Hydra results per request, and pages read when a query fills them
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
@@ -208,6 +212,35 @@ def same_posting(a, b):
     return len(a & b) > 0.01 * min(len(a), len(b))
 
 
+SKETCH_K = 64  # message-ID hashes kept per posting sketch
+
+
+def sketch(ids, k=SKETCH_K):
+    """Bottom-k sketch of a posting: the k smallest CRC32s of its message-IDs. Postings that share most of
+    their articles (one posting re-listed with a re-uploaded segment) share most of their sketch; distinct
+    postings share about none. Compact enough to keep for every kept or dead NZB."""
+    return tuple(heapq.nsmallest(k, {zlib.crc32(i.encode()) for i in ids}))
+
+
+def same_sketch(a, b):
+    k = min(len(a), len(b))
+    return bool(k) and len(set(a) & set(b)) >= max(1, k // 8)
+
+
+_KEPT = {}  # (path, mtime, size) -> sketch of an NZB file nzbget keeps
+
+
+def kept_sketch(path):
+    st = os.stat(path)
+    key = (path, st.st_mtime, st.st_size)
+    if key not in _KEPT:
+        if len(_KEPT) > 4096:
+            _KEPT.clear()
+        with open(path, "rb") as f:
+            _KEPT[key] = sketch(parse_nzb(f.read()).message_ids)
+    return _KEPT[key]
+
+
 def candidate_ok(primary_title, primary_bytes, r, tol):
     """Hydra result worth fetching: same release by name; size only matters if a tolerance is set."""
     if tol and primary_bytes and abs(r.size - primary_bytes) > tol * primary_bytes:
@@ -223,7 +256,8 @@ def mask(text):
 
 
 class State:
-    """JSON file {key: {t, title, fps: {message-id fingerprint: nzbid}}}."""
+    """JSON file {key: {t, title, fps: {message-id fingerprint: nzbid}},
+    "_dead": {t, fps: {fingerprint: {t, s: sketch}}}}."""
 
     def __init__(self, state_dir):
         self.path = os.path.join(state_dir, "state.json")
@@ -254,6 +288,21 @@ class State:
 
     def sent(self, key, fp):
         return self.data.get(key, {}).get("fps", {}).get(fp)
+
+    def mark_dead(self, fp, sk):
+        with self.lock:
+            dead = self.data.setdefault("_dead", {"t": time.time(), "fps": {}})
+            dead["t"] = time.time()
+            dead["fps"] = {f: e for f, e in dead["fps"].items()
+                           if isinstance(e, dict) and time.time() - e["t"] < DEAD_TTL}
+            dead["fps"][fp] = {"t": time.time(), "s": list(sk)}
+            self.save()
+
+    def is_dead(self, sk):
+        """Was this posting (or a near-identical re-listing of it) found dead recently?"""
+        entries = self.data.get("_dead", {}).get("fps", {}).values()
+        return any(isinstance(e, dict) and time.time() - e["t"] < DEAD_TTL and same_sketch(sk, e["s"])
+                   for e in entries)
 
     def record(self, key, fp, nzbid, title=None, touch=False):
         g = self.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
@@ -473,6 +522,8 @@ class Proxy:
             order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab
                 order = order[:3 * cfg.max_donors]
+            nzbget_config = self.rpc_call(path, auth, "config", []) or []
+            known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
                 if time.time() > deadline:
@@ -482,8 +533,18 @@ class Proxy:
                 for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk, [deadline] * len(chunk))):
                     if reason != "ok":
                         stats[reason] += 1
-                    elif readable(ci.main_name) and not same_release(title, ci.main_name):
+                        continue
+                    if r.size and abs(ci.total_bytes - r.size) > 0.02 * r.size:
+                        stats["listing-mismatch"] += 1  # the indexer served some other NZB than it lists
+                        log.info("%s served a different NZB than it lists for %s: %d bytes / %d files, "
+                                 "listed %d bytes", r.indexer, r.title, ci.total_bytes, ci.files, r.size)
+                    known, sk = known_f.result(), sketch(ci.message_ids)
+                    if readable(ci.main_name) and not same_release(title, ci.main_name):
                         stats["other-release"] += 1
+                    elif any(same_sketch(sk, k) for k in known):
+                        stats["in-nzbget"] += 1
+                    elif self.state.is_dead(sk):
+                        stats["known-dead"] += 1  # found dead on an earlier grab: no new health check
                     elif any(same_posting(ci.message_ids, ids) for ids in postings):
                         stats["same-posting"] += 1
                     else:
@@ -492,7 +553,7 @@ class Proxy:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
-        servers = self.news_servers(path, auth, title) if cfg.health_percent and verified else []
+        servers = self.news_servers(nzbget_config, title) if cfg.health_percent and verified else []
         probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False)
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
@@ -532,10 +593,29 @@ class Proxy:
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
 
-    def news_servers(self, path, auth, title):
+    def known_postings(self, path, auth, nzbget_config, key, title):
+        """Sketches of the NZBs nzbget already holds for this release: queue and history items with this
+        DupeKey or the same release name, read (cached) from the copies nzbget keeps in its NzbDir."""
+        opts = {e.get("Name"): str(e.get("Value", "")) for e in nzbget_config}
+        nzbdir = opts.get("NzbDir", "").replace("${MainDir}", opts.get("MainDir", ""))
+        if not nzbdir:
+            return []
+        items = (self.rpc_call(path, auth, "history", [True]) or []) + (self.rpc_call(path, auth, "listgroups", [0]) or [])
+        names = {x["NZBFilename"] for x in items if x.get("NZBFilename") and (
+            x.get("DupeKey") == key or same_release(title, x.get("NZBName") or ""))}
+        out = []
+        for name in names:
+            for f in glob.glob(glob.escape(os.path.join(nzbdir, name)) + "*.queued"):
+                try:
+                    out.append(kept_sketch(f))
+                except (OSError, ValueError):
+                    continue
+        return out
+
+    def news_servers(self, nzbget_config, title):
         try:
-            servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
-                                                              self.cfg.max_conns_per_nntp_server, self.cfg.timeout)
+            servers = donor_health.servers_from_nzbget_config(nzbget_config, self.cfg.max_conns_per_nntp_server,
+                                                              self.cfg.timeout)
         except (ValueError, TypeError, KeyError) as e:
             log.warning("health check skipped for %s: unreadable news server config (%s)", title, type(e).__name__)
             return []
@@ -563,11 +643,12 @@ class Proxy:
         """Probe: dead only if nothing was found (10 articles are too few to judge a share). Full sample:
         dead below DONOR_MIN_ALIVE."""
         h = health.get(v[2].fingerprint)
-        if h is None or h.alive is None:
+        if h is None or h.alive is None or h.missing < donor_health.MIN_KNOWN:  # errors alone prove nothing
             return False
-        if (h.present > 0) if phase == "probe" else (h.alive >= self.cfg.donor_min_alive):
+        if not donor_health.dead_probe(h) if phase == "probe" else (h.alive >= self.cfg.donor_min_alive):
             return False
         stats["dead"] += 1
+        self.state.mark_dead(v[2].fingerprint, sketch(v[2].message_ids))
         log.info("dropping dead donor %s [%s] after %s: alive=%s (%d of %d answered articles on no server, "
                  "%d errors)", v[0].title, v[0].indexer, phase, pct(h.alive), h.answered - h.present, h.answered,
                  h.error)
@@ -579,7 +660,7 @@ class Proxy:
         h = health.get(v[2].fingerprint)
         if h is None or h.alive is None:
             return
-        dead = h.alive < self.cfg.donor_min_alive
+        dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
         ranks.release(old)
         new = 1 if dead else ranks.take(h.alive)
         alive = "DupeAlive=%s" % pct(h.alive)
@@ -596,6 +677,7 @@ class Proxy:
             return
         if dead:
             stats["dead"] += 1
+            self.state.mark_dead(v[2].fingerprint, sketch(v[2].message_ids))
         log.info("rescored donor nzbid=%d %s [%s]: score %d -> %d, alive=%s (full sample%s)", donor_id, v[0].title,
                  v[0].indexer, old, new, pct(h.alive), ", dead" if dead else "")
 

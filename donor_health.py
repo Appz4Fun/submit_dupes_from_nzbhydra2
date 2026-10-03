@@ -84,6 +84,11 @@ class Health:
         return Health(*(a + b for a, b in zip(vars(self).values(), vars(other).values())))
 
 
+def dead_probe(h):
+    """A probe proves an NZB dead only with nothing found and enough definite misses (not mere errors)."""
+    return h.present == 0 and h.missing >= MIN_KNOWN
+
+
 def sample(ids, percent, minimum=20, maximum=300, seed=0):
     """`percent` of the ids, at least `minimum`, at most `maximum` (deterministic)."""
     ids = sorted(ids)
@@ -182,8 +187,8 @@ async def _check_nzb(pools, items, per_nzb, deadline):
             soft[i] = soft[i] or answer == "bodybad"
             if answer == "present":
                 settle(i, "present")
-            elif len(votes[i]) == len(pools):
-                settle(i, "error" if "error" in votes[i].values() else "missing")
+            elif len(votes[i]) == len(pools):  # nobody had it: missing if any server said so definitively
+                settle(i, "error" if set(votes[i].values()) == {"error"} else "missing")
 
     walkers = [asyncio.ensure_future(walk(p, pool, cursor))
                for p, pool in enumerate(pools) for cursor in [[0]] for _ in range(per_nzb)]
@@ -209,7 +214,7 @@ async def _run(servers, groups, percent, probe, budget, full, limits, body_perce
         async with gate:
             deadline = loop.time() + budget  # each NZB's own budget, counted from when its check starts
             h = await _check_nzb(pools, first, limits.per_nzb, deadline)
-            if full and not (h.present == 0 and h.answered >= MIN_KNOWN):  # dead after the probe: done
+            if full and not dead_probe(h):  # nothing found and enough definite misses: done
                 probed = {m for m, _ in first}
                 h += await _check_nzb(pools, [it for it in items if it[0] not in probed], limits.per_nzb,
                                       deadline)

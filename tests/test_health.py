@@ -397,3 +397,65 @@ def test_health_failure_midway_still_adds_remaining_donors(make_proxy, nzbget, h
     post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
     assert len(nzbget.appends) == 5                                    # primary + all 4 donors
+
+
+def test_dead_posting_is_remembered_across_grabs(make_proxy, nzbget, hydra, caplog, tmp_path, monkeypatch):
+    import nzbget_dupe_proxy as ndp
+    monkeypatch.setattr(ndp, "GROUP_WINDOW", 0)                       # the second grab comes much later
+    caplog.set_level(logging.INFO)
+    prim, dead = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    news = FakeNntp(article_ids(prim))
+    nzbget.config_entries = news.config(1)
+    hydra.add(TITLE, dead)
+    p = make_proxy(state_dir=str(tmp_path / "s"))
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert "'dead': 1" in " ".join(r.getMessage() for r in caplog.records)
+    news.stats.clear()
+    p.stop()
+    p2 = make_proxy(state_dir=str(tmp_path / "s"))                   # a later grab (state survives restarts)
+    post(p2.url + "/jsonrpc", append_body(release(TITLE, prefix="q"), title=TITLE), auth=("admin", "pw"))
+    p2.wait_idle(30)
+    assert not [m for m in news.stats if m.startswith("d-")]          # no new STATs for the dead posting
+    assert "'known-dead': 1" in [r.getMessage() for r in caplog.records if r.getMessage().startswith("append key=")][-1]
+
+
+def test_outage_never_marks_donors_dead(make_proxy, nzbget, hydra, caplog, tmp_path):
+    caplog.set_level(logging.INFO)
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    news = FakeNntp(article_ids(prim) + article_ids(donor), password="right")
+    nzbget.config_entries = [e if e["Name"] != "Server1.Password" else {"Name": e["Name"], "Value": "wrong"}
+                             for e in news.config(1)]                    # every request fails: an outage
+    hydra.add(TITLE, donor)
+    p = make_proxy(state_dir=str(tmp_path / "s"))
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(60)
+    assert len(nzbget.appends) == 2                                       # donor kept (health unknown)
+    import nzbget_dupe_proxy as ndp
+    assert not p.state.is_dead(ndp.sketch(ndp.parse_nzb(donor).message_ids))
+
+
+def test_one_erroring_server_still_reveals_missing_articles():
+    ids = ["e%d@x" % i for i in range(20)]
+    ok, broken = FakeNntp(), FakeNntp(password="right")
+    entries = [e if e["Name"] != "Server2.Password" else {"Name": e["Name"], "Value": "wrong"}
+               for e in ok.config(1) + broken.config(2)]
+    h = dh.check_many(dh.servers_from_nzbget_config(entries), {"n": ids}, percent=100, probe=20, body_percent=0)["n"]
+    assert h.missing == 20 and h.error == 0
+
+
+def test_dead_cache_recognizes_relisted_posting_with_reuploaded_segment(make_proxy, nzbget, hydra, caplog,
+                                                                         tmp_path, monkeypatch):
+    import nzbget_dupe_proxy as ndp
+    monkeypatch.setattr(ndp, "GROUP_WINDOW", 0)
+    caplog.set_level(logging.INFO)
+    prim, dead = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(prim)).config(1)
+    hydra.add(TITLE, dead)
+    p = make_proxy(state_dir=str(tmp_path / "s"))
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    hydra.items[0].nzb = dead.replace(b"d-0-0@x", b"refill@x")       # the same dead posting, re-listed
+    post(p.url + "/jsonrpc", append_body(release(TITLE, prefix="q"), title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert "'known-dead': 1" in [r.getMessage() for r in caplog.records if r.getMessage().startswith("append key=")][-1]

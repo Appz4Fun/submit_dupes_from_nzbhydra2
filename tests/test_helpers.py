@@ -112,3 +112,25 @@ def test_codec_suffix_is_not_a_volume_suffix():
     assert normalize_title("Movie.2020.1080p.WEB.DDP5.1.H.265") == "movie.2020.1080p.web.ddp5.1.h.265"
     assert not same_release("Movie.2020.1080p.WEB.DDP5.1.H.264", "Movie.2020.1080p.WEB.DDP5.1.H.265")
     assert normalize_title("Movie.2020.1080p.WEB-GRP.mkv.001") == "movie.2020.1080p.web.grp"
+
+
+def test_sketch_same_posting_survives_reuploaded_segments_but_not_other_postings():
+    from nzbget_dupe_proxy import same_sketch, sketch
+    a = {"a%d@x" % i for i in range(6000)}
+    reup = (a - {"a1@x", "a2@x"}) | {"z1@x", "z2@x"}
+    other = {"b%d@x" % i for i in range(6000)}
+    assert len(sketch(a)) == 64
+    assert same_sketch(sketch(a), sketch(reup))
+    assert not same_sketch(sketch(a), sketch(other))
+    assert same_sketch(sketch({"t1@x", "t2@x"}), sketch({"t1@x", "t2@x"}))          # tiny NZBs too
+
+
+def test_kept_nzb_sketch_is_cached(tmp_path, monkeypatch):
+    import nzbget_dupe_proxy as ndp
+    f = tmp_path / "x.nzb.queued"
+    f.write_bytes(make_nzb([("a.mkv", [5, 5])]))
+    calls = []
+    real = ndp.parse_nzb
+    monkeypatch.setattr(ndp, "parse_nzb", lambda d: calls.append(1) or real(d))
+    assert ndp.kept_sketch(str(f)) == ndp.kept_sketch(str(f))
+    assert len(calls) == 1
