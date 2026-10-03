@@ -432,3 +432,18 @@ def test_indexer_that_refused_is_not_asked_again(proxy, nzbget, hydra, caplog):
     capped = [f for f in hydra.fetches if hydra.items[int(f.split("/")[2].split("?")[0])].indexer == "capped"]
     assert len(capped) == 2                                              # the first grab and its one retry
     assert len(donors(nzbget)) == 1 and "'refused': 3" in summary(caplog)
+
+
+def test_listing_that_serves_another_nzb_does_not_hide_the_posting(proxy, nzbget, hydra):
+    # some indexers serve another indexer's NZB for a listing: try the posting's next listing
+    when, real = time.time() - 86400, release(TITLE, prefix="r")
+    hydra.add(TITLE, release(TITLE, prefix="x", n_files=5), size=nzb_total(real), grabs=9, posted=when)
+    hydra.add(TITLE, real, grabs=1, posted=when + 5)
+    append(proxy, primary())
+    assert base64.b64decode(donors(nzbget)[0]["params"][1]) == real
+
+
+def test_listings_without_size_are_not_grouped():
+    import nzbget_dupe_proxy as ndp
+    rs = [ndp.Result("t", "l%d" % i, 0, 0, 1000.0 + i, "idx") for i in range(3)]
+    assert len(ndp.group_listings(rs)) == 3

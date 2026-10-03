@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape
 def serve(handler_cls, owner):
     """Start handler_cls on 127.0.0.1:<free port> in a daemon thread; handler gets .owner."""
     cls = type(handler_cls.__name__, (handler_cls,), {"owner": owner, "log_message": lambda *a: None})
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), cls)
+    srv = type("Server", (ThreadingHTTPServer,), {"request_queue_size": 128})(("127.0.0.1", 0), cls)  # concurrent grabs
     threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
     owner.server = srv
     owner.url = "http://127.0.0.1:%d" % srv.server_address[1]

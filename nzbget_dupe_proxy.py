@@ -255,16 +255,21 @@ def candidate_ok(primary_title, primary_bytes, r, tol):
 def group_listings(results):
     """Hydra results -> lists of listings of one posting: same size, posted within RELIST_WINDOW (indexers list
     a posting with its own usenetdate, a few seconds apart). A repost of the same files has the same size but
-    another posting time. Listings without a date stay alone."""
+    another posting time. Listings without a size or date stay alone."""
     groups, last = [], None
     for r in sorted(results, key=lambda r: (r.size, r.date)):
-        if last is not None and r.date and last[0].date and r.size == last[0].size and \
+        if last is not None and r.size and r.date and last[0].date and r.size == last[0].size and \
                 r.date - last[0].date <= RELIST_WINDOW:
             last.append(r)
         else:
             last = [r]
             groups.append(last)
     return groups
+
+
+def listing_mismatch(r, info):
+    """The indexer served an NZB more than 2% off the size it lists (often another indexer's NZB)."""
+    return bool(r.size) and abs(info.total_bytes - r.size) > 0.02 * r.size
 
 
 def mask(text):
@@ -532,7 +537,7 @@ class Proxy:
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None
             reason, data, info, status = self._fetch(r, deadline, retries)
-            if status in (403, 429):
+            if status in (403, 429) and r.indexer:
                 self.refused[r.indexer] = time.time() + INDEXER_COOLDOWN
                 log.info("indexer %s refused NZB downloads (HTTP %d): skipping it for %d min", r.indexer, status,
                          INDEXER_COOLDOWN // 60)
@@ -559,18 +564,22 @@ class Proxy:
         return reason, None, None, status
 
     def fetch_posting(self, listings, deadline):
-        """One NZB of a posting listed by several indexers: its listings in turn until one is fetched.
-        -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
-        stats, last = Counter(), (listings[0], "fetch", None, None)
+        """One NZB of a posting listed by several indexers: its listings in turn until one serves an NZB of its
+        listed size (an indexer may serve another indexer's NZB for a listing; that one is kept only if no
+        listing serves the posting itself). -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
+        stats, last, other = Counter(), (listings[0], "fetch", None, None), None
         for j, r in enumerate(listings):
             reason, data, ci = self.fetch(r, deadline)
-            if reason == "ok":
+            if reason == "ok" and not listing_mismatch(r, ci):
                 if j + 1 < len(listings):
                     stats["relisted"] += len(listings) - j - 1  # never fetched: the same posting
                 return r, reason, data, ci, stats
-            stats[reason] += 1
-            last = (r, reason, None, None)
-        return last + (stats,)
+            if reason == "ok":
+                other = other or (r, reason, data, ci)
+            else:
+                stats[reason] += 1
+                last = (r, reason, None, None)
+        return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
@@ -614,7 +623,7 @@ class Proxy:
                     stats.update(tried)
                     if reason != "ok":
                         continue
-                    if r.size and abs(ci.total_bytes - r.size) > 0.02 * r.size:
+                    if listing_mismatch(r, ci):
                         stats["listing-mismatch"] += 1  # the indexer served some other NZB than it lists
                         log.info("%s served a different NZB than it lists for %s: %d bytes / %d files, "
                                  "listed %d bytes", r.indexer, r.title, ci.total_bytes, ci.files, r.size)
