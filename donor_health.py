@@ -114,37 +114,86 @@ def _drop(conn):
         writer.close()
 
 
+class _ServerSlots:
+    """Open-connection budget for one server, shared by every run in this process (concurrent grabs)."""
+
+    def __init__(self, cap):
+        self.cap, self.used, self.waiting, self.lock = cap, 0, 0, threading.Lock()
+
+    def try_take(self):
+        with self.lock:
+            if self.used < self.cap:
+                self.used += 1
+                return True
+            return False
+
+    def give_back(self):
+        with self.lock:
+            self.used -= 1
+
+
+_SLOTS, _SLOTS_LOCK = {}, threading.Lock()  # (host, port, user) -> _ServerSlots
+
+
+def _slots(server):
+    with _SLOTS_LOCK:
+        key = (server.host, server.port, server.username)
+        if key not in _SLOTS:
+            _SLOTS[key] = _ServerSlots(server.max_connections)
+        return _SLOTS[key]
+
+
 class _Pool:
-    """Connections to one server, opened on demand and shared by every NZB check of a run."""
+    """Connections to one server for one run. Every open connection holds one of the server's slots, so all
+    runs together never exceed its cap; an idle connection is closed when another run waits for a slot."""
 
     def __init__(self, server):
         self.server, self.idle, self.errors, self.down_until = server, [], 0, 0.0
-        self.slots = asyncio.Semaphore(server.max_connections)
+        self.slots = _slots(server)
+
+    async def _get(self):
+        while True:
+            if self.idle:
+                return self.idle.pop()
+            if self.slots.try_take():
+                return AsyncNntpConnection(self.server)
+            self.slots.waiting += 1
+            try:
+                await asyncio.sleep(0.005)
+            finally:
+                self.slots.waiting -= 1
+
+    async def _put(self, conn):
+        if self.slots.waiting:  # someone else needs this server's slot more than our idle connection
+            await conn.close()
+            self.slots.give_back()
+        else:
+            self.idle.append(conn)
 
     async def ask(self, mid, body):
         """This server's answer for one article: 'present', 'missing', 'bodybad' or 'error'."""
         wait = self.down_until - asyncio.get_running_loop().time()
         if wait > 0:  # a server that kept failing gets a pause, then another try (found articles don't wait)
             await asyncio.sleep(wait)
-        async with self.slots:
-            conn = self.idle.pop() if self.idle else AsyncNntpConnection(self.server)
-            try:
-                answer = await self._ask(conn, mid, body)
-            except asyncio.CancelledError:
-                _drop(conn)
-                raise
-            except Exception:
-                self.errors += 1
-                if self.errors >= SERVER_GIVE_UP:
-                    self.down_until = asyncio.get_running_loop().time() + SERVER_RETRY_AFTER
-                await conn.close()
-                answer = "error"
-            else:
-                self.errors = 0
+        conn = await self._get()
+        try:
+            answer = await self._ask(conn, mid, body)
+        except asyncio.CancelledError:
+            _drop(conn)
+            self.slots.give_back()
+            raise
+        except Exception:
+            self.errors += 1
             if self.errors >= SERVER_GIVE_UP:
-                self.errors = 0
-            self.idle.append(conn)
-            return answer
+                self.down_until = asyncio.get_running_loop().time() + SERVER_RETRY_AFTER
+            await conn.close()
+            answer = "error"
+        else:
+            self.errors = 0
+        if self.errors >= SERVER_GIVE_UP:
+            self.errors = 0
+        await self._put(conn)
+        return answer
 
     @staticmethod
     async def _ask(conn, mid, body):
@@ -160,6 +209,8 @@ class _Pool:
     async def close(self):
         for conn in self.idle:
             await conn.close()
+            self.slots.give_back()
+        self.idle = []
 
 
 async def _check_nzb(pools, items, per_nzb, deadline):

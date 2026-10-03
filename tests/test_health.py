@@ -459,3 +459,27 @@ def test_dead_cache_recognizes_relisted_posting_with_reuploaded_segment(make_pro
     post(p.url + "/jsonrpc", append_body(release(TITLE, prefix="q"), title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
     assert "'known-dead': 1" in [r.getMessage() for r in caplog.records if r.getMessage().startswith("append key=")][-1]
+
+
+def test_concurrent_grabs_share_the_connection_cap(make_proxy, nzbget, hydra):
+    import threading as th
+    news = FakeNntp()
+    news.delay = 0.02
+    groups = []
+    for g in range(3):                                                  # three different releases grabbed at once
+        t = "Show.S01E0%d.1080p.WEB.H264-GRP" % (g + 1)
+        prim = release(t, prefix="p%d" % g)
+        donors = [release(t, prefix="g%dd%d" % (g, i)) for i in range(4)]
+        news.articles |= {m for d in donors + [prim] for m in article_ids(d)}
+        for d in donors:
+            hydra.add(t, d)
+        groups.append((t, prim))
+    nzbget.config_entries = news.config(1, connections=50)
+    p = make_proxy(max_conns_per_nntp_server=3)
+    threads = [th.Thread(target=post, args=(p.url + "/jsonrpc", append_body(prim, title=t)), kwargs={"auth": ("a", "b")})
+               for t, prim in groups]
+    [x.start() for x in threads]
+    [x.join() for x in threads]
+    p.wait_idle(60)
+    assert len(nzbget.appends) == 15
+    assert news.max_active <= 3
