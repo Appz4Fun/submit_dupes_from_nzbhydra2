@@ -364,14 +364,15 @@ def test_server_retried_after_give_up(monkeypatch):
     srv = FakeNntp(ids)
     servers = dh.servers_from_nzbget_config(srv.config(1), max_conns=1)
     calls = {"n": 0}
-    real = dh._Pool._ask
+    real = dh._Pool._ask_batch
 
-    async def flaky(conn, mid, body):
+    async def flaky(conn, batch):
         calls["n"] += 1
         if calls["n"] <= dh.SERVER_GIVE_UP:
-            raise OSError("451 try later")
-        return await real(conn, mid, body)
-    monkeypatch.setattr(dh._Pool, "_ask", staticmethod(flaky))
+            raise OSError("connection reset")
+        return await real(conn, batch)
+    monkeypatch.setattr(dh._Pool, "_ask_batch", staticmethod(flaky))
+    monkeypatch.setattr(dh, "PIPELINE_START", 1)                         # one article per failed request
     monkeypatch.setattr(dh, "SERVER_RETRY_AFTER", 0.05)
     h = dh.check_many(servers, {"n": ids}, percent=100, probe=12, body_percent=0)["n"]
     assert h.present >= len(ids) - dh.SERVER_GIVE_UP - 1               # the server came back
@@ -647,3 +648,14 @@ def test_final_dupescores_rank_the_most_whole_donor_first(make_proxy, nzbget, hy
     final = nzbget.final_scores()
     by = {base64.b64decode(a["params"][1]): final[a["id"]] for a in nzbget.appends[1:]}
     assert [by[d] for d in (twin100, other100, other95, twin90)] == [90, 89, 85, 82]
+
+
+def test_stat_requests_are_pipelined_on_one_connection():
+    # nzbget may leave the check a single connection per server: several STATs in flight per round trip
+    import time
+    ids = ["l%d@x" % i for i in range(64)]
+    srv = FakeNntp(ids)
+    servers = dh.servers_from_nzbget_config(srv.config(1, connections=2), max_conns=1)
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=64, body_percent=0)["n"]
+    assert h.present == 64 and srv.sessions == 1
+    assert srv.pipelined >= 32

@@ -227,9 +227,22 @@ class _NntpHandler(socketserver.StreamRequestHandler):
             with o.lock:
                 o.active -= 1
 
+    def _lines(self, o):
+        """Command lines as they arrive; counts the ones that came with others (sent before any reply)."""
+        buf = b""
+        while True:
+            chunk = self.connection.recv(65536)
+            if not chunk:
+                return
+            buf += chunk
+            *lines, buf = buf.split(b"\n")
+            with o.lock:
+                o.pipelined += max(0, len(lines) - 1)
+            yield from lines
+
     def _session(self, o):
         self.wfile.write(b"200 fake news\r\n")
-        for raw in self.rfile:
+        for raw in self._lines(o):
             cmd = raw.decode().strip()
             if cmd.startswith("AUTHINFO USER"):
                 self.wfile.write(b"381 more\r\n")
@@ -260,7 +273,7 @@ class FakeNntp:
 
     def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430):
         self.articles, self.password, self.soft_dead = set(articles), password, set(soft_dead)
-        self.missing_code, self.sessions = missing_code, 0
+        self.missing_code, self.sessions, self.pipelined = missing_code, 0, 0
         self.stats, self.bodies, self.delay = [], [], 0.0
         self.lock, self.active, self.max_active = threading.Lock(), 0, 0
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))

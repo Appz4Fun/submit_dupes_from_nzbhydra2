@@ -22,12 +22,14 @@ import threading
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
-from cyclops.verify_nzb import (AsyncNntpConnection, ServerConfig, normalize_message_id,  # noqa: E402
-                                validate_yenc_body)
+from cyclops.verify_nzb import (AsyncNntpConnection, ServerConfig, TransientNntpError,  # noqa: E402
+                                normalize_message_id, validate_yenc_body)
 
 MIN_KNOWN = 5               # answered articles needed before judging an NZB
 SERVER_GIVE_UP = 3          # consecutive errors after which a server pauses ...
 SERVER_RETRY_AFTER = 30.0   # ... for this many seconds before it is asked again
+PIPELINE = 16               # most STATs sent per round trip on one connection (RFC 3977 3.5 pipelining);
+PIPELINE_START = 4          # a server starts at this many, doubling while a batch takes < 1 s, halving > 2 s
 
 
 class Server(ServerConfig):
@@ -163,7 +165,7 @@ class _Pool:
 
     def __init__(self, server):
         self.server, self.idle, self.errors, self.down_until = server, [], 0, 0.0
-        self.slots, self.inflight, self.waiting = _slots(server), set(), 0
+        self.slots, self.inflight, self.waiting, self.depth = _slots(server), set(), 0, PIPELINE_START
 
     async def _get(self):
         while True:
@@ -189,22 +191,29 @@ class _Pool:
     def paused(self):
         return self.down_until > asyncio.get_running_loop().time()
 
-    async def ask(self, mid, body):
-        """This server's answer for one article: 'present', 'missing', 'bodybad' or 'error'."""
+    async def ask(self, batch):
+        """This server's answers for [(message-id, False or _BodyGate)]: 'present', 'missing', 'bodybad' or
+        'error' each."""
         wait = self.down_until - asyncio.get_running_loop().time()
         if wait > 0:  # a server that kept failing gets a pause, then another try (found articles don't wait)
             await asyncio.sleep(wait)
         conn = await self._get()
         # Shielded: if the article gets settled (or the NZB ends) meanwhile, the request still finishes and
         # its connection goes back to the pool, so no half-used connection is ever torn down and re-opened.
-        task = asyncio.ensure_future(self._serve(conn, mid, body))
+        task = asyncio.ensure_future(self._serve(conn, batch))
         self.inflight.add(task)
         task.add_done_callback(self.inflight.discard)
         return await asyncio.shield(task)
 
-    async def _serve(self, conn, mid, body):
+    async def _serve(self, conn, batch):
+        t0 = asyncio.get_running_loop().time()
         try:
-            answer = await self._ask(conn, mid, body)
+            answers = await self._ask_batch(conn, batch)
+            took = asyncio.get_running_loop().time() - t0  # latency-bound servers gain from deeper batches,
+            if took < 1.0:                                  # busy ones only hold a batch past the budget
+                self.depth = min(PIPELINE, self.depth * 2)
+            elif took > 2.0:
+                self.depth = max(1, self.depth // 2)
         except asyncio.CancelledError:  # only at interpreter/loop shutdown
             _drop(conn)
             self.slots.give_back()
@@ -214,25 +223,38 @@ class _Pool:
             if self.errors >= SERVER_GIVE_UP:
                 self.down_until = asyncio.get_running_loop().time() + SERVER_RETRY_AFTER
             await conn.close()
-            answer = "error"
+            answers = ["error"] * len(batch)
         else:
             self.errors = 0
         if self.errors >= SERVER_GIVE_UP:
             self.errors = 0
         await self._put(conn)
-        return answer
+        return answers
 
     @staticmethod
-    async def _ask(conn, mid, body):
-        """`body`: False, or the article's _BodyGate (one server at a time downloads it). Any reply line is an answer on a healthy connection: 430 = missing; another code (some providers
-        say 451 for a missing article) = 'error' without dropping the connection. Only a failed connection
-        or a garbled reply raises (cyclops' own stat()/body() would close the connection on a 451)."""
+    async def _ask_batch(conn, batch):
+        """All STATs of the batch in one write, then their replies in order; then BODY for each article that
+        has a _BodyGate (one server at a time downloads it). Any reply line is an answer on a healthy
+        connection: 430 = missing; another code (some providers say 451 for a missing article) = 'error'
+        without dropping the connection. Only a failed connection or a garbled reply raises (cyclops' own
+        stat()/body() would close the connection on a 451)."""
         await conn._connect_once()
-        code, _ = await conn._send_command("STAT %s" % normalize_message_id(mid))
-        if code != 223:
-            return "missing" if code == 430 else "error"
-        if not body:
-            return "present"
+        try:
+            conn._writer.write("".join("STAT %s\r\n" % normalize_message_id(m) for m, _ in batch).encode("ascii"))
+            await asyncio.wait_for(conn._writer.drain(), conn.config.timeout)
+        except asyncio.TimeoutError as exc:
+            raise TransientNntpError("command timeout") from exc
+        codes = [(await conn._read_response())[0] for _ in batch]
+        out = []
+        for (mid, gate), code in zip(batch, codes):
+            if code != 223:
+                out.append("missing" if code == 430 else "error")
+            else:
+                out.append(await _Pool._body(conn, mid, gate) if gate else "present")
+        return out
+
+    @staticmethod
+    async def _body(conn, mid, body):
         async with body.lock:
             if body.done():  # another server delivered valid data meanwhile
                 return "present"
@@ -276,21 +298,24 @@ async def _check_nzb(pools, items, per_nzb, deadline):
 
     async def walk(p, pool, cursor):  # one server's pass over the articles, skipping ones already found
         while cursor[0] < n:
-            i = cursor[0]
-            cursor[0] += 1
-            if final[i] is not None:
+            todo = []
+            while cursor[0] < n and len(todo) < pool.depth:  # the next articles nobody has found yet
+                if final[cursor[0]] is None:
+                    todo.append(cursor[0])
+                cursor[0] += 1
+            if not todo:
                 continue
-            mid, body = items[i]
             if pool.paused() and any(not q.paused() for q in pools if q is not pool):
-                answer = "error"  # a server in its pause abstains while others can answer: misses don't wait
+                answers = ["error"] * len(todo)  # a server in its pause abstains while others can answer
             else:
-                answer = await pool.ask(mid, gates.get(i, False))
-            votes[i][p] = answer
-            soft[i] = soft[i] or answer == "bodybad"
-            if answer == "present":
-                settle(i, "present")
-            elif len(votes[i]) == len(pools):  # nobody had it: missing if any server said so definitively
-                settle(i, "error" if set(votes[i].values()) == {"error"} else "missing")
+                answers = await pool.ask([(items[i][0], gates.get(i, False)) for i in todo])
+            for i, answer in zip(todo, answers):
+                votes[i][p] = answer
+                soft[i] = soft[i] or answer == "bodybad"
+                if answer == "present":
+                    settle(i, "present")
+                elif len(votes[i]) == len(pools):  # nobody had it: missing if any server said so definitively
+                    settle(i, "error" if set(votes[i].values()) == {"error"} else "missing")
 
     walkers = [asyncio.ensure_future(walk(p, pool, cursor))
                for p, pool in enumerate(pools) for cursor in [[0]] for _ in range(per_nzb)]
