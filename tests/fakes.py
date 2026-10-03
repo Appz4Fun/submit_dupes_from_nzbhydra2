@@ -184,9 +184,29 @@ def append_body(nzb=b"<nzb/>", title="Some.Release", category="", dupekey="", sc
     return json.dumps({"id": rid, "jsonrpc": "2.0", "method": "append", "params": params}).encode()
 
 
+YENC_DATA = b"a" * 64  # (97 + 42) % 256 needs no yEnc escaping
+
+
+def _yenc_body():
+    import binascii
+    enc = bytes((c + 42) % 256 for c in YENC_DATA)
+    return (b"=ybegin line=128 size=%d name=x.bin\r\n" % len(YENC_DATA) + enc + b"\r\n" +
+            b"=yend size=%d crc32=%08x\r\n.\r\n" % (len(YENC_DATA), binascii.crc32(YENC_DATA) & 0xFFFFFFFF))
+
+
 class _NntpHandler(socketserver.StreamRequestHandler):
     def handle(self):
         o = self.server.owner
+        with o.lock:
+            o.active += 1
+            o.max_active = max(o.max_active, o.active)
+        try:
+            self._session(o)
+        finally:
+            with o.lock:
+                o.active -= 1
+
+    def _session(self, o):
         self.wfile.write(b"200 fake news\r\n")
         for raw in self.rfile:
             cmd = raw.decode().strip()
@@ -194,11 +214,16 @@ class _NntpHandler(socketserver.StreamRequestHandler):
                 self.wfile.write(b"381 more\r\n")
             elif cmd.startswith("AUTHINFO PASS"):
                 self.wfile.write(b"281 ok\r\n" if cmd == "AUTHINFO PASS " + o.password else b"481 denied\r\n")
-            elif cmd.startswith("STAT "):
-                mid = cmd[5:].strip("<>")
+            elif cmd.startswith(("STAT ", "BODY ")):
+                verb, mid = cmd[:4], cmd[5:].strip("<>")
                 time.sleep(o.delay)
-                o.stats.append(mid)
-                self.wfile.write(("223 0 <%s>\r\n" % mid if mid in o.articles else "430 no such article\r\n").encode())
+                with o.lock:
+                    (o.stats if verb == "STAT" else o.bodies).append(mid)
+                has = mid in o.articles and not (verb == "BODY" and mid in o.soft_dead)
+                if verb == "STAT":
+                    self.wfile.write(("223 0 <%s>\r\n" % mid if has else "430 no such article\r\n").encode())
+                else:
+                    self.wfile.write(b"222 0 body\r\n" + _yenc_body() if has else b"430 no such article\r\n")
             elif cmd == "QUIT":
                 self.wfile.write(b"205 bye\r\n")
                 return
@@ -207,20 +232,24 @@ class _NntpHandler(socketserver.StreamRequestHandler):
 
 
 class FakeNntp:
-    """Plain-TCP NNTP server answering STAT from a set of message-ids (without <>)."""
+    """Plain-TCP NNTP server answering STAT/BODY from a set of message-ids (without <>).
 
-    def __init__(self, articles=(), password="pw"):
-        self.articles, self.password, self.stats, self.delay = set(articles), password, [], 0.0
+    soft_dead: ids whose STAT says 223 but whose BODY is gone (430). Tracks concurrent connections."""
+
+    def __init__(self, articles=(), password="pw", soft_dead=()):
+        self.articles, self.password, self.soft_dead = set(articles), password, set(soft_dead)
+        self.stats, self.bodies, self.delay = [], [], 0.0
+        self.lock, self.active, self.max_active = threading.Lock(), 0, 0
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))
         srv.daemon_threads, srv.owner, self.server = True, self, srv
         threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
         self.port = srv.server_address[1]
 
-    def config(self, n, active="yes"):
+    def config(self, n, active="yes", connections=8):
         """nzbget `config` entries describing this server as ServerN."""
         return [{"Name": "Server%d.%s" % (n, k), "Value": v} for k, v in
                 (("Active", active), ("Host", "127.0.0.1"), ("Port", str(self.port)), ("Username", "u"),
-                 ("Password", self.password), ("Encryption", "no"), ("Connections", "8"))]
+                 ("Password", self.password), ("Encryption", "no"), ("Connections", str(connections)))]
 
 
 def article_ids(nzb):

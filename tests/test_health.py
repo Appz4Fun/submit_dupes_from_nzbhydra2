@@ -15,10 +15,10 @@ def test_servers_from_nzbget_config():
         ("Server3.Active", "yes"), ("Server3.Host", "news.c"), ("Server3.Port", "119"), ("Server3.Encryption", "no"),
         ("Server3.Username", ""), ("Server3.Password", ""), ("Server3.Connections", "1"),
         ("Server4.Active", "yes"), ("Server4.Host", ""), ("ControlPassword", "x")]]
-    s = dh.servers_from_nzbget_config(entries, connections=8, timeout=7)
+    s = dh.servers_from_nzbget_config(entries, max_conns=8, timeout=7)
     assert [(x.host, x.port, x.ssl, x.username, x.password, x.max_connections, x.timeout) for x in s] == [
         ("news.a", 563, True, "u1", "secret", 8, 7), ("news.c", 119, False, None, None, 1, 7)]
-    assert dh.servers_from_nzbget_config(entries[:7], connections=50)[0].max_connections == 15  # half of 30
+    assert dh.servers_from_nzbget_config(entries[:7], max_conns=50)[0].max_connections == 15  # half of nzbget's 30
     assert "secret" not in repr(s)
 
 
@@ -82,7 +82,7 @@ def test_check_many_budget_leaves_unknown():
     import time
     slow = FakeNntp()
     slow.delay = 0.3
-    servers = dh.servers_from_nzbget_config(slow.config(1), connections=1)
+    servers = dh.servers_from_nzbget_config(slow.config(1), max_conns=1)
     t0 = time.time()
     res = dh.check_many(servers, {"x": ["x%d@x" % i for i in range(50)]}, percent=100, probe=50, budget=1.0)
     assert time.time() - t0 < 3
@@ -244,3 +244,156 @@ def test_capped_run_keeps_fetching_past_dead_donors(make_proxy, nzbget, hydra):
     post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends[1:]] == [good]
+
+
+# ---- parallel fan-out engine -------------------------------------------------------------------
+
+
+def test_fanout_does_not_wait_for_slow_server():
+    import time
+    ids = ["f%d@x" % i for i in range(20)]
+    fast, slow = FakeNntp(ids), FakeNntp(ids)
+    slow.delay = 0.5                                                   # 20 STATs alone would take 10 s
+    servers = dh.servers_from_nzbget_config(fast.config(1) + slow.config(2))
+    t0 = time.time()
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=20, body_percent=0)["n"]
+    assert (h.present, h.answered) == (20, 20)
+    assert time.time() - t0 < 3
+    assert len(slow.stats) < 20                                        # it skipped articles already found
+
+
+def test_missing_needs_every_server():
+    ids = ["m%d@x" % i for i in range(10)]
+    a, b = FakeNntp(), FakeNntp()
+    b.delay = 0.05
+    servers = dh.servers_from_nzbget_config(a.config(1) + b.config(2))
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=10, body_percent=0)["n"]
+    assert h.missing == 10
+    assert sorted(a.stats) == sorted(b.stats) == sorted(ids)
+
+
+def test_body_checks_catch_soft_dead_articles():
+    ids = ["s%d@x" % i for i in range(30)]
+    srv = FakeNntp(ids, soft_dead=ids)                                  # STAT says yes, BODY is gone
+    servers = dh.servers_from_nzbget_config(srv.config(1))
+    stat_only = dh.check_many(servers, {"n": ids}, percent=100, probe=30, body_percent=0)["n"]
+    assert stat_only.alive == 1.0
+    with_body = dh.check_many(servers, {"n": ids}, percent=100, probe=30, body_percent=100, max_body=100)["n"]
+    assert with_body.alive == 0.0 and with_body.body_checked == 30 and with_body.body_bad == 30
+
+
+def test_body_check_runs_on_every_server_and_needs_valid_data():
+    ids = ["b%d@x" % i for i in range(20)]
+    good, soft = FakeNntp(ids), FakeNntp(ids, soft_dead=ids)
+    servers = dh.servers_from_nzbget_config(soft.config(1) + good.config(2))
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=20, body_percent=100, max_body=100)["n"]
+    assert h.alive == 1.0                                                # the server with real data counts
+    assert set(good.bodies) == set(ids)
+
+
+def test_plan_marks_about_a_fifth_for_body():
+    ids = ["p%d@x" % i for i in range(5000)]
+    plan = dh.plan(ids, percent=10, body_percent=20, maximum=500, max_body=10 ** 6)
+    assert len(plan) == 500
+    assert 70 <= sum(b for _, b in plan) <= 130
+
+
+def test_connection_caps_hold_with_many_nzbs():
+    groups = {k: ["%d-%d@x" % (k, i) for i in range(20)] for k in range(30)}
+    srv = FakeNntp([m for ids in groups.values() for m in ids])
+    srv.delay = 0.01
+    servers = dh.servers_from_nzbget_config(srv.config(1, connections=50), max_conns=4)
+    res = dh.check_many(servers, groups, percent=100, probe=20, body_percent=0,
+                        limits=dh.Limits(nzbs=10, per_nzb=1))
+    assert all(h.present == 20 for h in res.values())
+    assert 2 <= srv.max_active <= 4
+
+
+def test_check_iter_streams_one_result_per_nzb():
+    groups = {k: ["%d-%d@x" % (k, i) for i in range(10)] for k in range(5)}
+    srv = FakeNntp([m for ids in groups.values() for m in ids])
+    servers = dh.servers_from_nzbget_config(srv.config(1))
+    seen = [k for k, _ in dh.check_iter(servers, groups, percent=100, probe=10, body_percent=0)]
+    assert sorted(seen) == list(range(5))
+
+
+def test_parallel_check_env_vars():
+    import nzbget_dupe_proxy as ndp
+    c = ndp.Config.from_env({})
+    assert (c.nzbs_to_check_concurrently, c.nntp_server_connection_per_nzb, c.max_conns_per_nntp_server,
+            c.body_percent) == (10, 1, 20, 20.0)
+    c = ndp.Config.from_env({"NZBS_TO_CHECK_CONCURRENTLY": "4", "NNTP_SERVER_CONNECTION_PER_NZB": "2",
+                             "MAX_CONNS_PER_NNTP_SERVER": "6", "BODY_PERCENT": "0"})
+    assert (c.nzbs_to_check_concurrently, c.nntp_server_connection_per_nzb, c.max_conns_per_nntp_server,
+            c.body_percent) == (4, 2, 6, 0.0)
+
+
+def test_proxy_health_respects_connection_cap(make_proxy, nzbget, hydra):
+    prim = release(TITLE, prefix="p")
+    donors = [release(TITLE, prefix="c%d" % i) for i in range(8)]
+    news = FakeNntp([m for d in donors + [prim] for m in article_ids(d)])
+    news.delay = 0.01
+    nzbget.config_entries = news.config(1, connections=50)
+    for d in donors:
+        hydra.add(TITLE, d)
+    p = make_proxy(max_conns_per_nntp_server=3, nzbs_to_check_concurrently=10)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(60)
+    assert len(nzbget.appends) == 9
+    assert news.max_active <= 3
+
+
+
+def test_each_nzb_gets_its_own_budget():
+    groups = {k: ["%d-%d@x" % (k, i) for i in range(5)] for k in range(3)}
+    srv = FakeNntp([m for ids in groups.values() for m in ids])
+    srv.delay = 0.1                                                   # one NZB takes ~0.5 s with 1 connection
+    servers = dh.servers_from_nzbget_config(srv.config(1, connections=2), max_conns=1)
+    res = dh.check_many(servers, groups, percent=100, probe=5, body_percent=0, budget=1.5,
+                        limits=dh.Limits(nzbs=1, per_nzb=1))
+    assert all(h.present == 5 for h in res.values())                  # the third NZB is not starved
+
+
+def test_body_checks_capped_per_nzb():
+    plan = dh.plan(["p%d@x" % i for i in range(1000)], percent=30, body_percent=100, maximum=300, max_body=5)
+    assert len(plan) == 300 and sum(b for _, b in plan) == 5
+
+
+def test_server_retried_after_give_up(monkeypatch):
+    ids = ["r%d@x" % i for i in range(12)]
+    srv = FakeNntp(ids)
+    servers = dh.servers_from_nzbget_config(srv.config(1), max_conns=1)
+    calls = {"n": 0}
+    real = dh._Pool._ask
+
+    async def flaky(conn, mid, body):
+        calls["n"] += 1
+        if calls["n"] <= dh.SERVER_GIVE_UP:
+            raise OSError("451 try later")
+        return await real(conn, mid, body)
+    monkeypatch.setattr(dh._Pool, "_ask", staticmethod(flaky))
+    monkeypatch.setattr(dh, "SERVER_RETRY_AFTER", 0.05)
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=12, body_percent=0)["n"]
+    assert h.present >= len(ids) - dh.SERVER_GIVE_UP - 1               # the server came back
+
+
+def test_health_failure_midway_still_adds_remaining_donors(make_proxy, nzbget, hydra, monkeypatch):
+    prim = release(TITLE, prefix="p")
+    donors = [release(TITLE, prefix="k%d" % i) for i in range(4)]
+    news = FakeNntp([m for d in donors + [prim] for m in article_ids(d)])
+    nzbget.config_entries = news.config(1)
+    for d in donors:
+        hydra.add(TITLE, d)
+    real = dh.check_iter
+
+    def breaks(servers, groups, *a, **kw):
+        if not kw.get("full", True):
+            yield from real(servers, groups, *a, **kw)
+            return
+        yield next(iter(real(servers, groups, *a, **kw)))
+        raise RuntimeError("checker died")
+    monkeypatch.setattr(dh, "check_iter", breaks)
+    p = make_proxy(fast_donors=1)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 5                                    # primary + all 4 donors

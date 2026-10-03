@@ -61,10 +61,20 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      and also re-download candidates if the primary fails.
 - **Donor health ([cyclops](https://github.com/Appz4Fun/cyclops), vendored).** The proxy reads nzbget's
   news servers through JSON-RPC `config`, using Hydra's credentials. Server passwords are never logged. For
-  each verified donor (and the primary, for the log) it first `STAT`s a 10-article probe. An NZB with none of
+  each verified donor (and the primary, for the log) it first checks a 10-article probe. An NZB with none of
   those on any server is dead, and its full sample is skipped. Every other NZB then gets a 2% sample (at least
-  20 articles, at most 300). Each article is tried on every active server in turn, and it counts as missing
-  only when all of them answer 430. A donor whose sample is mostly gone is dropped as `dead`. To get donors
+  20 articles, at most 300).
+  - **Every server at once.** Each article goes to all active servers in parallel: a `STAT`, plus a `BODY` with
+    yEnc validation for a random `BODY_PERCENT` (20%) of the articles. The first real hit (223, or valid data
+    for a body check) marks the article found, every server skips it from then on, and each server moves on
+    at its own pace, so slow servers never hold up fast ones. An article is missing only when every server
+    said no. A `STAT` 223 whose `BODY` is gone or corrupt counts as no data. A request already in flight for
+    an article that another server found meanwhile is left to finish, and its answer is ignored. Cancelling it
+    would mean dropping and reopening the connection. A server that fails 3 times in a row pauses for 30 s,
+    then is asked again.
+  - **The whole corpus in parallel.** `NZBS_TO_CHECK_CONCURRENTLY` NZBs are checked at once, each with
+    `NNTP_SERVER_CONNECTION_PER_NZB` connections per server, never more than `MAX_CONNS_PER_NNTP_SERVER` per
+    server. Each NZB's `HEALTH_BUDGET` starts when its own check starts. A donor whose sample is mostly gone is dropped as `dead`. To get donors
   into nzbget quickly, every candidate is probed together in one connection pool. The best `FAST_DONORS` (5)
   that pass the probe are appended at once. The remaining candidates then get their full samples, 4 at a time in
   one pool, and each is appended as soon as it passes, until `MAX_DONORS` if a cap is set. The probe only drops
@@ -102,7 +112,11 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
 | `SIZE_TOLERANCE` | `0` | `0` = size is not a filter; for example `0.2` skips Hydra results more than 20% off |
 | `HEALTH_PERCENT` | `2` | STAT this % of each NZB's articles (min 20, max 300) on **every** active news server from nzbget's config; `0` = off |
 | `DONOR_MIN_ALIVE` | `0.5` | drop a donor (`rejected: dead`) when less than this share of its sampled articles exists on any server |
-| `HEALTH_CONNECTIONS` | `8` | connections per news server for the health check, capped at half of nzbget's own `Connections` for that server |
+| `NZBS_TO_CHECK_CONCURRENTLY` | `10` | NZBs whose articles are checked at the same time |
+| `NNTP_SERVER_CONNECTION_PER_NZB` | `1` | connections per news server for each NZB being checked |
+| `MAX_CONNS_PER_NNTP_SERVER` | `20` | hard cap on connections per news server, also limited to half of that server's nzbget `Connections` so nzbget keeps the rest |
+| `BODY_PERCENT` | `20` | share of sampled articles that also get a `BODY` with yEnc validation on every server |
+| `BODY_MAX_PER_NZB` | `5` | at most this many body checks per NZB, since every server downloads each body article |
 | `HEALTH_BUDGET` | `120` | seconds per health pass: the quick probe of all donors, or the full sample of up to 4 donors. Articles still unanswered count as unknown and the donor is kept |
 | `FAST_DONORS` | `5` | donors appended right after the quick probe. The rest are appended one at a time, each after its full sample |
 | `STATE_DIR` | `/var/lib/nzbget-dupe-proxy` | state file location |

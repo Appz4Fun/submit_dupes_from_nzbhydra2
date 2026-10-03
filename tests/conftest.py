@@ -12,6 +12,7 @@ from tests.fakes import FakeHydra, FakeNzbget  # noqa: E402
 @pytest.fixture(autouse=True)
 def fast_retries(monkeypatch):
     monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0.01)
+    monkeypatch.setattr(ndp.donor_health, "SERVER_RETRY_AFTER", 0.05)
 
 
 @pytest.fixture

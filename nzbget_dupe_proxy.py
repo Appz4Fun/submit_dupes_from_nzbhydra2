@@ -8,6 +8,7 @@ resolution, source, codec, audio, HDR, ...), not by size. Python 3 stdlib + vend
 import base64
 import functools
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -56,8 +57,12 @@ class Config:
     dry_run: bool = False
     health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
-    health_connections: int = 8   # per news server (and <= half its nzbget Connections)
-    health_budget: float = 120.0  # s per health pass (probe of all donors / full sample of up to 4 donors)
+    nzbs_to_check_concurrently: int = 10      # NZBs whose articles are checked at the same time
+    nntp_server_connection_per_nzb: int = 1   # connections per news server for each NZB being checked
+    max_conns_per_nntp_server: int = 20       # hard cap per server (also <= the server's nzbget Connections)
+    body_percent: float = 20.0                # share of sampled articles that also get BODY + yEnc check ...
+    body_max_per_nzb: int = 5                 # ... but at most this many per NZB (every server downloads them)
+    health_budget: float = 120.0  # s per health pass (probe of all donors / full samples of the rest)
     fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
@@ -485,25 +490,30 @@ class Proxy:
             added += donor_id != 0
             if donor_id > 0:
                 fast_ids[v[2].fingerprint] = (donor_id, score)
-        # then full samples, 4 donors per connection pool: refine the fast donors' scores, add the rest
-        todo = [(v, True) for v in live[:n_fast] if servers] + [(v, False) for v in live[n_fast:]]
-        for i in range(0, len(todo), 4):
-            chunk = todo[i:i + 4]
-            groups = {v[2].fingerprint: v[2].message_ids for v, _ in chunk}
-            if i == 0:
-                groups["primary"] = info.message_ids
-            h = self.health(servers, title, groups, full=True)
-            if i == 0 and h:
-                log.info("health %s: primary alive=%s on %d server(s)", title, pct(h["primary"].alive), len(servers))
-            for v, was_fast in chunk:
-                if was_fast:
-                    if v[2].fingerprint in fast_ids:
-                        self.rescore(path, auth, v, fast_ids[v[2].fingerprint], h, ranks, stats)
-                elif added >= cfg.donor_cap:
-                    stats["over-cap"] += 1
-                elif not self.dead(v, h, stats, "full sample"):
-                    score = ranks.take(alive_of(h, v))
-                    added += self.add_donor(key, category, path, auth, v, score, h, "checked", stats) != 0
+        # then full samples of every donor at once, handled as each finishes: refine fast donors, add the rest
+        todo = {v[2].fingerprint: (v, True) for v in live[:n_fast] if servers}
+        todo.update({v[2].fingerprint: (v, False) for v in live[n_fast:]})
+        groups = {fp: v[2].message_ids for fp, (v, _) in todo.items()}
+        groups["primary"] = info.message_ids
+        checked = self.health_iter(servers, title, groups, full=True) if servers else iter(())
+        unchecked = ((fp, None) for fp in list(todo))  # whatever the check did not report (no servers, failure)
+        for fp, h in itertools.chain(checked, unchecked):
+            if fp == "primary":
+                log.info("health %s: primary alive=%s on %d server(s)", title, pct(h.alive), len(servers))
+                continue
+            entry = todo.pop(fp, None)
+            if entry is None:  # already handled from the check's own result
+                continue
+            v, was_fast = entry
+            health = {fp: h} if h else {}
+            if was_fast:
+                if fp in fast_ids:
+                    self.rescore(path, auth, v, fast_ids[fp], health, ranks, stats)
+            elif added >= cfg.donor_cap:
+                stats["over-cap"] += 1
+            elif not self.dead(v, health, stats, "full sample"):
+                score = ranks.take(alive_of(health, v))
+                added += self.add_donor(key, category, path, auth, v, score, health, "checked", stats) != 0
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -512,7 +522,7 @@ class Proxy:
     def news_servers(self, path, auth, title):
         try:
             servers = donor_health.servers_from_nzbget_config(self.rpc_call(path, auth, "config", []) or [],
-                                                              self.cfg.health_connections, self.cfg.timeout)
+                                                              self.cfg.max_conns_per_nntp_server, self.cfg.timeout)
         except (ValueError, TypeError, KeyError) as e:
             log.warning("health check skipped for %s: unreadable news server config (%s)", title, type(e).__name__)
             return []
@@ -520,16 +530,21 @@ class Proxy:
             log.info("health check skipped for %s: no active news servers in nzbget config", title)
         return servers
 
-    def health(self, servers, title, groups, full):
-        """{key: Health} from sampled STATs on all news servers; {} when unchecked (health is advisory)."""
+    def health_iter(self, servers, title, groups, full):
+        """Yields (key, Health) per NZB as its parallel check finishes; nothing when unchecked (advisory)."""
         if not servers:
-            return {}
+            return
+        limits = donor_health.Limits(self.cfg.nzbs_to_check_concurrently, self.cfg.nntp_server_connection_per_nzb)
         try:
-            return donor_health.check_many(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget,
-                                           full=full)
+            yield from donor_health.check_iter(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget,
+                                               full=full, limits=limits, body_percent=self.cfg.body_percent,
+                                               max_body=self.cfg.body_max_per_nzb)
         except Exception as e:
             log.warning("health check failed for %s: %s", title, type(e).__name__)
-            return {}
+
+    def health(self, servers, title, groups, full):
+        """{key: Health} for all `groups` (see health_iter)."""
+        return dict(self.health_iter(servers, title, groups, full))
 
     def dead(self, v, health, stats, phase):
         """Probe: dead only if nothing was found (10 articles are too few to judge a share). Full sample:
