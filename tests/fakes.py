@@ -109,6 +109,7 @@ class _HydraHandler(BaseHTTPRequestHandler):
             return self._send(200, body)
         if self.path.startswith("/getnzb/"):
             o.fetches.append(self.path)
+            o.fetch_times.append(time.time())
             time.sleep(o.fetch_delay)
             it = o.items[int(self.path.split("/")[2].split("?")[0])]
             if it.flaky > 0:                        # transient indexer hiccup: error body with HTTP 200
@@ -130,6 +131,7 @@ class FakeHydra:
     def __init__(self):
         self.items, self.queries, self.fetches = [], [], []
         self.delay = self.fetch_delay = 0.0
+        self.fetch_times = []
         serve(_HydraHandler, self)
 
     def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200, flaky=0):

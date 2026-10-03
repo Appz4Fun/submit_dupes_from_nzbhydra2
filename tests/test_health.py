@@ -524,3 +524,31 @@ def test_byte_identical_twin_outranks_other_packaging(make_proxy, nzbget, hydra)
     final = nzbget.final_scores()
     by = {base64.b64decode(a["params"][1]): final[a["id"]] for a in nzbget.appends[1:]}
     assert by[twin] == 90 and by[other] == 49 and by[twin] < 100
+
+
+def test_dead_primary_is_demoted_while_hydra_is_still_searching(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(donor)).config(1)       # primary: nothing on any server
+    hydra.add(TITLE, donor)
+    hydra.delay = 1.5                                                     # a slow search (many indexers)
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    primary_id = nzbget.appends[0]["id"]
+    i = nzbget.edits.index(("GroupSetDupeScore", "1", [primary_id]))
+    assert nzbget.edit_times[i] < hydra.fetch_times[0]                    # before any donor NZB was even fetched
+    msg = [r.getMessage() for r in caplog.records if "primary" in r.getMessage() and "dead" in r.getMessage()][0]
+    assert TITLE in msg
+
+
+def test_primary_that_already_left_the_queue_is_reported_plainly(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(donor)).config(1)
+    nzbget.editqueue_result = False                                       # nzbget: no such queue item any more
+    hydra.add(TITLE, donor)
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert "already left the queue" in " ".join(r.getMessage() for r in caplog.records)

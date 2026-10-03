@@ -507,6 +507,13 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
+        nzbget_config = self.rpc_call(path, auth, "config", []) or []
+        servers = self.news_servers(nzbget_config, title) if cfg.health_percent else []
+        # the primary's own probe starts now, beside the searches: a dead primary is demoted within seconds,
+        # before nzbget downloads (or parks) it
+        primary_check = threading.Thread(target=self.check_primary, daemon=True,
+                                         args=(servers, path, auth, nzbid, title, info))
+        primary_check.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
@@ -525,7 +532,6 @@ class Proxy:
             order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab
                 order = order[:3 * cfg.max_donors]
-            nzbget_config = self.rpc_call(path, auth, "config", []) or []
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
@@ -556,10 +562,8 @@ class Proxy:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
-        servers = self.news_servers(nzbget_config, title) if cfg.health_percent and verified else []
-        groups = dict({ci.fingerprint: ci.message_ids for _, _, ci in verified}, primary=info.message_ids)
-        probe = self.health(servers, title, groups, full=False)
-        self.demote_dead_primary(path, auth, nzbid, title, info, probe.get("primary"))
+        servers = servers if verified else []
+        probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False)
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
@@ -594,6 +598,7 @@ class Proxy:
             elif not self.dead(v, health, stats, "full sample"):
                 score = ranks.take(alive_of(health, v), twin(v[2]))
                 added += self.add_donor(key, category, path, auth, v, score, health, "checked", stats) != 0
+        primary_check.join()
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -660,20 +665,22 @@ class Proxy:
                  h.error)
         return True
 
-    def demote_dead_primary(self, path, auth, nzbid, title, info, h):
-        """A primary with nothing on any server is demoted to DupeScore 1 before donors arrive, so nzbget swaps
-        in the healthiest donor right away. Never a partly alive one: the swap deletes what it downloaded,
-        which is exactly what nzbget's repair from duplicates needs."""
+    def check_primary(self, servers, path, auth, nzbid, title, info):
+        """Probe the primary; one with nothing on any server is demoted to DupeScore 1, so nzbget swaps in
+        the healthiest donor as soon as one arrives. Never a partly alive one: the swap deletes what it
+        downloaded, which is exactly what nzbget's repair from duplicates needs."""
+        h = self.health(servers, title, {"primary": info.message_ids}, full=False).get("primary")
         if h is None or not donor_health.dead_probe(h) or nzbid <= 0:
             return
-        if self.cfg.dry_run:
-            log.info("primary is dead (%d of %d probe articles on no server); DRY-RUN: not demoted", h.missing,
-                     h.answered)
-            return
-        done = self.rpc_call(path, auth, "editqueue", ["GroupSetDupeScore", "1", [nzbid]])
         self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
-        log.info("primary is dead (%d of %d probe articles on no server): %s", h.missing, h.answered,
-                 "DupeScore 100 -> 1, the healthiest donor takes over" if done else "could not demote it")
+        what = "%s: primary is dead (%d of %d probe articles on no server)" % (title, h.missing, h.answered)
+        if self.cfg.dry_run:
+            log.info("%s; DRY-RUN: not demoted", what)
+        elif self.rpc_call(path, auth, "editqueue", ["GroupSetDupeScore", "1", [nzbid]]):
+            log.info("%s: DupeScore 100 -> 1, the healthiest donor takes over", what)
+        else:
+            log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
+                     what)
 
     def rescore(self, path, auth, v, added, health, ranks, stats):
         """After its full sample, move a fast donor's DupeScore (and DupeAlive) to its real health."""
