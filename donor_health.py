@@ -107,6 +107,16 @@ def plan(ids, percent, body_percent=20, minimum=20, maximum=300, seed=0, max_bod
     return out
 
 
+async def _quit(conn):
+    """Close politely (QUIT, wait for 205) so the server has ended the session before its slot is reused."""
+    if conn._writer is not None:
+        try:
+            await asyncio.wait_for(conn._send_command("QUIT"), 5)
+        except Exception:
+            pass
+    await conn.close()
+
+
 def _drop(conn):
     """Close a connection whose request was cancelled mid-flight (its protocol state is unknown)."""
     writer, conn._writer, conn._reader = conn._writer, None, None
@@ -149,7 +159,7 @@ class _Pool:
 
     def __init__(self, server):
         self.server, self.idle, self.errors, self.down_until = server, [], 0, 0.0
-        self.slots = _slots(server)
+        self.slots, self.inflight, self.waiting = _slots(server), set(), 0
 
     async def _get(self):
         while True:
@@ -158,16 +168,18 @@ class _Pool:
             if self.slots.try_take():
                 return AsyncNntpConnection(self.server)
             self.slots.waiting += 1
+            self.waiting += 1
             try:
                 await asyncio.sleep(0.005)
             finally:
                 self.slots.waiting -= 1
+                self.waiting -= 1
 
     async def _put(self, conn):
-        if self.slots.waiting:  # someone else needs this server's slot more than our idle connection
-            await conn.close()
+        if self.slots.waiting > self.waiting:  # another run waits for this server: hand the slot over
+            await _quit(conn)
             self.slots.give_back()
-        else:
+        else:                                  # keep it (our own waiters pick it up from idle)
             self.idle.append(conn)
 
     async def ask(self, mid, body):
@@ -176,9 +188,17 @@ class _Pool:
         if wait > 0:  # a server that kept failing gets a pause, then another try (found articles don't wait)
             await asyncio.sleep(wait)
         conn = await self._get()
+        # Shielded: if the article gets settled (or the NZB ends) meanwhile, the request still finishes and
+        # its connection goes back to the pool, so no half-used connection is ever torn down and re-opened.
+        task = asyncio.ensure_future(self._serve(conn, mid, body))
+        self.inflight.add(task)
+        task.add_done_callback(self.inflight.discard)
+        return await asyncio.shield(task)
+
+    async def _serve(self, conn, mid, body):
         try:
             answer = await self._ask(conn, mid, body)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # only at interpreter/loop shutdown
             _drop(conn)
             self.slots.give_back()
             raise
@@ -207,8 +227,9 @@ class _Pool:
             return "bodybad"
 
     async def close(self):
+        await asyncio.gather(*self.inflight, return_exceptions=True)  # let requests in flight finish first
         for conn in self.idle:
-            await conn.close()
+            await _quit(conn)
             self.slots.give_back()
         self.idle = []
 
