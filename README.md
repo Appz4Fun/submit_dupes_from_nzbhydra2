@@ -119,7 +119,7 @@ sequenceDiagram
         P->>H: download candidate NZBs
     end
     P->>S: probe every candidate (in parallel)
-    P->>N: append the 5 best donors (DupeScore 10-90)
+    P->>N: append the 5 best donors (DupeScore 2-90)
     P->>S: full sample of every remaining donor
     P->>N: append each passing donor, rescore the first five
 ```
@@ -159,9 +159,17 @@ release, so the full-title query misses those postings, and a short query that r
 other groups can push them off the first page. In one live test, the short query alone found 2 of the 11
 postings of a release. The group query and paging found all of them.
 
-The proxy downloads candidate NZBs four at a time through Hydra. If an indexer answers with an error page
-instead of an NZB (a rate limit, for example), the proxy retries once after two seconds. It
-logs the first part of the reply, so you can see what the indexer said.
+Several indexers list the same posting, each with its own link. Listings with the same size and a posting
+time within two minutes of each other are one posting, so the proxy downloads one NZB for them and tries the
+next listing only when that download fails. A repost of the same files has the same size but a different
+posting time, so it stays a separate candidate. Every NZB download counts against the indexer's grab limit.
+In one live test, 67 candidates were 17 postings.
+
+The proxy downloads candidate NZBs four postings at a time through Hydra, with at most one download per
+indexer at a time. If an indexer answers with an error page instead of an NZB (a rate limit, for example),
+the proxy retries once after two seconds. It logs the first part of the reply, so you can see what the
+indexer said. An indexer that still answers HTTP 403 or 429 has reached its grab limit, so the proxy skips
+it for 30 minutes.
 
 ## Deciding what counts as the same release
 
@@ -214,7 +222,9 @@ flowchart TD
 
 | Key | Meaning |
 |---|---|
-| `fetch` | Hydra or the indexer refused the NZB download (HTTP 403 or 429 for a grab limit). |
+| `relisted` | Another indexer's listing of a posting whose NZB the proxy already has. Not downloaded. |
+| `fetch` | Hydra or the indexer refused the NZB download, or the download failed. |
+| `refused` | Not downloaded, because the indexer reached its grab limit (HTTP 403 or 429) within the last 30 minutes. |
 | `parse` | The reply was not an NZB, for example an indexer error page. |
 | `listing-mismatch` | The indexer served an NZB whose size differs by more than 2% from its listing. Some indexers serve another indexer's NZB for a listing. This key flags the NZB but doesn't reject it. |
 | `other-release` | The NZB's largest data file has a readable name for a different release, for example 720p inside a 1080p listing. |
@@ -249,8 +259,11 @@ credentials that Hydra sends. The proxy never logs server passwords.
 | Phase | Articles checked | Purpose |
 |---|---|---|
 | Probe | 10 articles per NZB | Quickly find postings with nothing left. |
-| Full sample | 2% of the articles: from 20 to 300 articles | Measure how much of a posting exists. |
-| Body check | 20% of the sampled articles, at most 5 per NZB | Download the article body and validate its yEnc data, because a server can answer `STAT` for an article whose data is gone. |
+| Full sample | 5% of the articles: from 50 to 1,000 articles | Measure how much of a posting exists. |
+| Body check | 20% of the sampled articles, at most 20 per NZB | Download the article body and validate its yEnc data, because a server can answer `STAT` for an article whose data is gone. |
+
+A 2160p episode has about 11,000 articles, so its full sample is about 550 articles. One server downloads
+each body article. If its data is missing or corrupt, the next server that has the article tries.
 
 ### Asking every server at once
 
@@ -278,13 +291,21 @@ sequenceDiagram
 
 - **Present.** One server answers `223` (or delivers valid yEnc data for a body check). The article is
   found, and no server is asked about it again.
-- **Missing.** Every server answered and none had the article, with at least one definite `430`.
-- **Error.** Every server failed to answer, for example during an outage.
+- **Missing.** Every server answered and none had the article, with at least one definite `430`. A server
+  in its error pause abstains, so it doesn't hold up the verdict.
+- **Error.** Every server failed to answer, for example during an outage. Some providers answer `451`
+  instead of `430` for a missing article. The proxy counts that as an error vote and keeps the connection.
 - **No data.** A server answered `223` but the body was missing or corrupt. That counts as missing.
 
 Each server walks the article list at its own pace, so a slow server never holds up a fast one. A request
 that is already in flight for an article that another server found is left to finish. Cancelling it would
 mean closing and reopening the connection.
+
+The proxy pipelines `STAT` commands: it sends several on one connection before it reads the answers. A
+server starts with 4 per round trip. The number doubles, up to 16, while a batch returns within a second,
+and halves when a batch takes more than two seconds. In a live test, 32 `STAT` commands took 1 to 5 seconds
+one at a time and 0.1 to 0.5 seconds pipelined on servers limited by network latency. Servers limited by
+their own lookup time gain little.
 
 ### Connection limits
 
@@ -316,8 +337,13 @@ flowchart LR
 ### Budget and verdicts
 
 Each NZB gets its own time budget, `HEALTH_BUDGET` (120 seconds), counted from the start of its check.
-Articles still unanswered when the budget runs out count as unknown, and an NZB with fewer than five answers
-is not judged. The `alive` share of an NZB is the share of its answered articles that exist.
+When the budget runs out, an unanswered article counts as missing if at least half of the servers said so
+and none had it. Otherwise it counts as unknown. An NZB with fewer than five answers is not judged. The
+`alive` share of an NZB is the share of its answered articles that exist.
+
+Present articles settle at the first hit, while missing ones wait for every server. Without the half rule,
+the articles that are still unanswered at the end of the budget are mostly missing ones. In a live test,
+leaving them out made a 12%-alive NZB look 57% alive.
 
 A donor counts as dead only with at least five definite misses: after the probe if none of its articles
 exist anywhere, and after the full sample if less than `DONOR_MIN_ALIVE` (50%) of them exist. An outage
@@ -326,33 +352,30 @@ alone can't mark a donor dead.
 ## Scoring donors
 
 nzbget's PR 850 fallback tries donors in `DupeScore` order, and nzbget's normal failover picks the
-highest-scored backup. The proxy encodes each donor's measured health into its `DupeScore`, so nzbget uses
-the healthiest postings first.
+highest-scored backup. The proxy encodes each donor's measured health into its `DupeScore`, so nzbget tries
+the most whole postings first.
 
 ```mermaid
 flowchart LR
-    subgraph twins["Byte-identical twins<br/>same file count and total bytes"]
-        t["50 + 40 × alive<br/>(90 at 100%)"]
-    end
-    subgraph others["Other packaging"]
-        o["10 + 39 × alive<br/>(49 at 100%)"]
-    end
-    primary["Primary: 100<br/>(1 when it has nothing left)"] --> twins --> others
+    primary["Primary: 100<br/>(1 when it has nothing left)"] --> donors["Donors: 9 + 80 × alive<br/>89 at 100%, 49 at 50%<br/>+1 for a byte-identical twin"] --> dead["Dead donors: 1"]
 ```
 
 | Donor | `DupeScore` | Why |
 |---|---|---|
 | Primary | `100` | The release you chose. |
 | Primary with nothing left on any server | `1` | Demoted, so the first healthy donor replaces it in the queue. |
-| Byte-identical twin of the primary | `50 + 40 × alive` | Article borrowing and whole-file recreation work best with an exact twin. |
-| Other packaging | `10 + 39 × alive` | Still useful for stream and cross-pack repair, and as a failover. |
+| Donor | `9 + 80 × alive` | The more of a posting exists, the earlier nzbget tries it. |
+| Byte-identical twin of the primary | One more than an equally whole donor | Article borrowing and whole-file recreation work best with an exact twin, so a twin wins a tie. |
 | Donor found dead after its full sample | `1` | Kept in nzbget's history, tried last. |
 
-Scores are unique: equal values count down, as in 90, 89, 88. Every donor also gets a `DupeAlive`
-post-processing parameter with its measured share as an integer from 0 to 100.
+Scores are unique and below 100. Every donor also gets a `DupeAlive` post-processing parameter with its
+measured share as an integer from 0 to 100.
 
 The five fast donors are first scored from their 10-article probe. After their full sample, the proxy
 corrects their score and `DupeAlive` value in place with `HistorySetDupeScore` and `HistorySetParameter`.
+The other donors are added in the order their checks finish. When every check is done, the proxy re-ranks
+all donors: by whole percent alive, then twins first, then closest size, then most grabs. Each donor gets a
+strictly lower score than the one before it.
 
 ### Why a partly alive primary is never demoted
 
@@ -500,14 +523,16 @@ The proxy uses the credentials that Hydra sends for its own calls to nzbget, so 
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HEALTH_PERCENT` | `2` | Share of each NZB's articles to check: from 20 to 300 articles. `0` turns health checks off. |
+| `HEALTH_PERCENT` | `5` | Share of each NZB's articles to check. `0` turns health checks off. |
+| `HEALTH_MIN_ARTICLES` | `50` | Fewest articles to check per NZB. |
+| `HEALTH_MAX_ARTICLES` | `1000` | Most articles to check per NZB. |
 | `DONOR_MIN_ALIVE` | `0.5` | Minimum share of a donor's sampled articles that must exist. |
 | `HEALTH_BUDGET` | `120` | Seconds per NZB for its checks. |
 | `NZBS_TO_CHECK_CONCURRENTLY` | `10` | NZBs checked at the same time. |
 | `NNTP_SERVER_CONNECTION_PER_NZB` | `1` | Connections per news server for each NZB being checked. |
 | `MAX_CONNS_PER_NNTP_SERVER` | `20` | Maximum connections per news server, also limited to half of that server's nzbget `Connections`. |
 | `BODY_PERCENT` | `20` | Share of the sampled articles that also get a `BODY` check. |
-| `BODY_MAX_PER_NZB` | `5` | Maximum body checks per NZB. Every server downloads each body article, so body checks cost bandwidth. |
+| `BODY_MAX_PER_NZB` | `20` | Maximum body checks per NZB. Each check downloads one article, about 750 KB. |
 
 ## Add the downloader in NZBHydra2
 
@@ -599,7 +624,8 @@ proxy answers with HTTP 502.
 
 **The summary shows many `fetch` rejections.**
 Indexers refuse NZB downloads when you reach your daily grab limit, usually with HTTP 403. Each candidate
-download counts as a grab. Set `MAX_DONORS` to limit downloads.
+download counts as a grab. The proxy downloads one NZB per posting and skips an indexer for 30 minutes after
+it refuses, which shows as `refused`. Set `MAX_DONORS` to limit downloads further.
 
 **The summary shows `listing-mismatch`.**
 Some indexers serve another indexer's NZB for a listing. The proxy deduplicates by message ID, so those NZBs
@@ -615,7 +641,9 @@ The proxy still runs discovery for the re-send and adds any new donors.
 
 **The health check seems slow.**
 Slow servers answer `430` slowly. A posting with nothing left takes longest, because every server must say
-no. Raise `NZBS_TO_CHECK_CONCURRENTLY` to check more NZBs at once, within your providers' connection limits.
+no. The check uses at most half of each server's nzbget `Connections`, so with `Connections=2` it has one
+connection per server for every NZB. Raise nzbget's connections, or `NZBS_TO_CHECK_CONCURRENTLY`, within
+your providers' limits.
 
 **A provider refuses connections during checks.**
 Lower `MAX_CONNS_PER_NNTP_SERVER`. Several nzbget servers that share one provider account also share that
@@ -627,12 +655,12 @@ account's connection limit.
   title can't be matched, because Hydra's title is the only information available before the download.
 - Health checks sample articles. A small share of missing articles can go unnoticed, and nzbget's repair
   covers those.
-- Body checks download real article data. Keep `BODY_MAX_PER_NZB` small.
+- Body checks download real article data: up to 20 articles, about 15 MB, per NZB by default.
 - The proxy only adds donors. It never deletes anything from nzbget.
 
 ## Develop and test
 
-The repository includes 106 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
+The repository includes 119 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
 NZB downloads), and NNTP news servers (`STAT`, `BODY`, authentication, delays, and connection counting).
 
 ```bash
