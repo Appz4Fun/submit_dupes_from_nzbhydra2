@@ -162,11 +162,11 @@ def test_dupescore_ranks_donors_by_alive_share(make_proxy, nzbget, hydra):
     by_prefix = {base64.b64decode(a["params"][1]).count(b">f-") > 0: a for a in nzbget.appends[1:]}
     full_d, partial_d = by_prefix[True], by_prefix[False]
     final = nzbget.final_scores()
-    assert final[full_d["id"]] == 90
-    assert 56 <= final[partial_d["id"]] <= 60                   # 10 + 80 * 0.6 after the full sample
+    assert final[full_d["id"]] == 49                            # other packaging: 10 + 39 * alive
+    assert 32 <= final[partial_d["id"]] <= 34                   # 10 + 39 * 0.6 after the full sample
     assert final[full_d["id"]] > final[partial_d["id"]]
-    assert any(p.get("Name") == "DupeAlive" for p in full_d["params"][9])
-    assert any(c == "HistorySetParameter" and pr == "DupeAlive=60%" for c, pr, _ in nzbget.edits)
+    assert {"Name": "DupeAlive", "Value": "100"} in full_d["params"][9]
+    assert any(c == "HistorySetParameter" and pr == "DupeAlive=60" for c, pr, _ in nzbget.edits)
 
 
 def test_fast_donor_found_dead_by_full_sample_is_demoted(make_proxy, nzbget, hydra):
@@ -483,3 +483,44 @@ def test_concurrent_grabs_share_the_connection_cap(make_proxy, nzbget, hydra):
     p.wait_idle(60)
     assert len(nzbget.appends) == 15
     assert news.max_active <= 3
+
+
+
+def test_dead_primary_is_demoted_before_the_first_donor_arrives(make_proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(donor)).config(1)       # primary: nothing on any server
+    hydra.add(TITLE, donor)
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    primary_id = nzbget.appends[0]["id"]
+    demote = [i for i, e in enumerate(nzbget.edits) if e == ("GroupSetDupeScore", "1", [primary_id])]
+    assert demote, nzbget.edits
+    assert nzbget.edit_times[demote[0]] < nzbget.appends[1]["time"]       # before the first donor
+    assert "primary is dead" in " ".join(r.getMessage() for r in caplog.records)
+
+
+def test_partly_alive_primary_is_never_demoted(make_proxy, nzbget, hydra):
+    prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    pids = article_ids(prim)
+    nzbget.config_entries = FakeNntp(article_ids(donor) + pids[: len(pids) // 2]).config(1)
+    hydra.add(TITLE, donor)
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[0] == "GroupSetDupeScore"]
+
+
+def test_byte_identical_twin_outranks_other_packaging(make_proxy, nzbget, hydra):
+    prim = release(TITLE, prefix="p")
+    twin, other = release(TITLE, prefix="t"), release("x", prefix="o", n_files=20, segs_per_file=10, obfuscate=True)
+    nzbget.config_entries = FakeNntp(article_ids(prim) + article_ids(twin) + article_ids(other)).config(1)
+    hydra.add(TITLE, other, grabs=1000)
+    hydra.add(TITLE, twin, grabs=1)
+    p = make_proxy()
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    final = nzbget.final_scores()
+    by = {base64.b64decode(a["params"][1]): final[a["id"]] for a in nzbget.appends[1:]}
+    assert by[twin] == 90 and by[other] == 49 and by[twin] < 100

@@ -66,12 +66,20 @@ NZBHydra2 --JSON-RPC--> nzbget-dupe-proxy :6790 --verbatim--> nzbget :6789
      and logged. Some indexers (seen with Square Eyed and nzb.life) serve another indexer's NZB for a
      listing. The NZB is still deduped by its article IDs, so it can't be added twice.
   6. Append the donors (all of them, or up to `MAX_DONORS`), ranked closest size first, then grabs, then age. Each gets the
-     same DupeKey, the same category, `AddPaused=false` and a **health-ranked DupeScore**: `10 + 80 × alive share`
-     (90 for 100% found, about 26 for 20%), unique and always below the primary's 100. Equal health counts down from
-     there (90, 89, …). PR 850 tries donors in DupeScore order, and nzbget's failover picks the highest-scored backup,
-     so the healthiest postings are used first. Each donor also gets a `DupeAlive=NN%` PP parameter. A fast donor
-     scored from its 10-article probe is rescored in place (`HistorySetDupeScore`) after its full sample. If the
-     full sample shows it dead, its score drops to 1. nzbget has
+     same DupeKey, the same category, `AddPaused=false` and a **ranked DupeScore**, always below the primary's 100.
+     PR 850 tries donors in DupeScore order, and nzbget's failover picks the highest-scored backup:
+     - **byte-identical twins** of the primary (same file count and total bytes) score `50 + 40 × alive share`
+       (90 at 100%). Article borrowing and whole-file recreation work best with them, so they're tried first;
+     - **other packagings** score `10 + 39 × alive share` (49 at 100%);
+     - equal values count down (90, 89, …).
+
+     Each donor also gets a `DupeAlive` PP parameter (an integer 0–100). A fast donor scored from its 10-article
+     probe is rescored in place (`HistorySetDupeScore`) after its full sample, and drops to 1 if it turns out
+     dead.
+  7. **A dead primary is demoted.** When the probe finds none of the primary's articles on any server (at
+     least 5 definite misses), the proxy sets the primary's DupeScore to 1 before the first donor arrives. The
+     healthiest donor then replaces it in the queue straight away. A partly alive primary is never demoted:
+     that swap deletes what it downloaded, which is what nzbget's repair from duplicates needs. nzbget has
      `DupeCheck=yes`, so it moves them straight to history as dupe backups. That makes them donors,
      and also re-download candidates if the primary fails.
 - **Donor health ([cyclops](https://github.com/Appz4Fun/cyclops), vendored).** The proxy reads nzbget's

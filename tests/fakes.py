@@ -46,6 +46,7 @@ class _NzbgetHandler(BaseHTTPRequestHandler):
         elif method == "editqueue":
             with o.lock:
                 o.edits.append(tuple(params))
+                o.edit_times.append(time.time())
             result = o.editqueue_result
         else:
             result = {"version": "27.0", "writelog": True, "config": o.config_entries,
@@ -75,6 +76,7 @@ class FakeNzbget:
         self.config_entries = []
         self.edits = []
         self.editqueue_result = True
+        self.edit_times = []
         self.history_items, self.queue_items = [], []
         serve(_NzbgetHandler, self)
 
