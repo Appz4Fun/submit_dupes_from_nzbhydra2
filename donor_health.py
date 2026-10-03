@@ -1,13 +1,15 @@
 """Article availability of NZBs on every news server nzbget knows, checked in parallel.
 
 Each sampled article is asked of all servers at once: STAT, and for BODY_PERCENT of the articles also BODY
-with yEnc validation, so "the server says it has it" is backed by real data now and then. The first real
-hit marks the article found and every server skips it from then on; an article is missing only after
-every server said no. Each server walks the article list at its own pace, so a slow server never holds
+with yEnc validation, so "the server says it has it" is backed by real data now and then (servers take turns
+on a body, so each is downloaded once unless it comes back bad). The first real hit marks the article found
+and every server skips it from then on; an article is missing only after every server said no (a server in
+its error pause abstains). Each server walks the article list at its own pace, so a slow server never holds
 up the fast ones (a request already in flight for an article that was found meanwhile is left to finish
-and its answer ignored: cancelling it would mean dropping and re-opening the connection). NZBs are checked NZBS_TO_CHECK_CONCURRENTLY at a time, each with
-NNTP_SERVER_CONNECTION_PER_NZB connections per server, all within MAX_CONNS_PER_NNTP_SERVER (and the
-server's own nzbget Connections). The NNTP client is vendored Appz4Fun/cyclops.
+and its answer ignored: cancelling it would mean dropping and re-opening the connection). NZBs are checked
+NZBS_TO_CHECK_CONCURRENTLY at a time, each with NNTP_SERVER_CONNECTION_PER_NZB connections per server, all
+within MAX_CONNS_PER_NNTP_SERVER (and the server's own nzbget Connections). The NNTP client is vendored
+Appz4Fun/cyclops.
 """
 import asyncio
 import math
@@ -222,7 +224,7 @@ class _Pool:
 
     @staticmethod
     async def _ask(conn, mid, body):
-        """Any reply line is an answer on a healthy connection: 430 = missing; another code (some providers
+        """`body`: False, or the article's _BodyGate (one server at a time downloads it). Any reply line is an answer on a healthy connection: 430 = missing; another code (some providers
         say 451 for a missing article) = 'error' without dropping the connection. Only a failed connection
         or a garbled reply raises (cyclops' own stat()/body() would close the connection on a 451)."""
         await conn._connect_once()
@@ -231,10 +233,14 @@ class _Pool:
             return "missing" if code == 430 else "error"
         if not body:
             return "present"
-        code, _ = await conn._send_command("BODY %s" % normalize_message_id(mid))
-        if code != 222:
-            return "bodybad"
-        return "present" if validate_yenc_body(await conn._read_multiline()).ok else "bodybad"
+        async with body.lock:
+            if body.done():  # another server delivered valid data meanwhile
+                return "present"
+            code, _ = await conn._send_command("BODY %s" % normalize_message_id(mid))
+            if code != 222:
+                return "bodybad"
+            body.ok = validate_yenc_body(await conn._read_multiline()).ok
+            return "present" if body.ok else "bodybad"
 
     async def close(self):
         await asyncio.gather(*self.inflight, return_exceptions=True)  # let requests in flight finish first
@@ -244,10 +250,21 @@ class _Pool:
         self.idle = []
 
 
+class _BodyGate:
+    """One article's BODY check: servers take turns (a body is ~750 KB), and stop once one delivered."""
+
+    def __init__(self, settled):
+        self.lock, self.ok, self.settled = asyncio.Lock(), False, settled
+
+    def done(self):
+        return self.ok or self.settled()
+
+
 async def _check_nzb(pools, items, per_nzb, deadline):
     """Check one NZB's sampled articles on every server at once -> Health."""
     n, loop = len(items), asyncio.get_running_loop()
     final, votes, soft = [None] * n, [dict() for _ in range(n)], [False] * n
+    gates = {i: _BodyGate(lambda i=i: final[i] is not None) for i, (_, body) in enumerate(items) if body}
     done, left = asyncio.Event(), [n]
 
     def settle(i, verdict):
@@ -267,7 +284,7 @@ async def _check_nzb(pools, items, per_nzb, deadline):
             if pool.paused() and any(not q.paused() for q in pools if q is not pool):
                 answer = "error"  # a server in its pause abstains while others can answer: misses don't wait
             else:
-                answer = await pool.ask(mid, body)
+                answer = await pool.ask(mid, gates.get(i, False))
             votes[i][p] = answer
             soft[i] = soft[i] or answer == "bodybad"
             if answer == "present":
@@ -293,12 +310,13 @@ async def _check_nzb(pools, items, per_nzb, deadline):
                   sum(body for _, body in items), sum(soft[i] and final[i] != "present" for i in range(n)))
 
 
-async def _run(servers, groups, percent, probe, budget, full, limits, body_percent, max_body, emit):
+async def _run(servers, groups, percent, probe, budget, full, limits, body_percent, max_body, minimum, maximum,
+               emit):
     loop = asyncio.get_running_loop()
     pools, gate = [_Pool(s) for s in servers], asyncio.Semaphore(limits.nzbs)
 
     async def one(key, ids):
-        items = plan(ids, percent, body_percent, max_body=max_body)
+        items = plan(ids, percent, body_percent, minimum, maximum, max_body=max_body)
         first = items[:probe] if len(items) >= probe else plan(ids, 0, body_percent, probe, probe, max_body=max_body)
         async with gate:
             deadline = loop.time() + budget  # each NZB's own budget, counted from when its check starts
@@ -317,16 +335,17 @@ async def _run(servers, groups, percent, probe, budget, full, limits, body_perce
 
 
 def check_iter(servers, groups, percent=2.0, probe=10, budget=120.0, full=True, limits=None, body_percent=20,
-               max_body=5):
+               max_body=5, minimum=20, maximum=300):
     """{key: message ids} -> yields (key, Health) as each NZB finishes. Every NZB first gets `probe`
     articles; one with none found anywhere is dead and skips its full `percent` sample (`full=False`:
-    probe only). Articles of an NZB still unanswered `budget` s after its check started are unknown."""
+    probe only). The sample is `percent` of its articles, at least `minimum`, at most `maximum`. Articles of an
+    NZB still unanswered `budget` s after its check started are unknown."""
     results, end = queue.Queue(), object()
 
     def run():
         try:
             asyncio.run(_run(servers, groups, percent, probe, budget, full, limits or Limits(), body_percent,
-                             max_body, lambda k, h: results.put((k, h))))
+                             max_body, minimum, maximum, lambda k, h: results.put((k, h))))
         finally:
             results.put(end)
 
@@ -339,9 +358,10 @@ def check_iter(servers, groups, percent=2.0, probe=10, budget=120.0, full=True, 
 
 
 def check_many(servers, groups, percent=2.0, probe=10, budget=120.0, full=True, limits=None, body_percent=20,
-               max_body=5):
+               max_body=5, minimum=20, maximum=300):
     """{key: message ids} -> {key: Health} (see check_iter)."""
-    return dict(check_iter(servers, groups, percent, probe, budget, full, limits, body_percent, max_body))
+    return dict(check_iter(servers, groups, percent, probe, budget, full, limits, body_percent, max_body, minimum,
+                           maximum))
 
 
 def availability(servers, message_ids, percent=2.0):

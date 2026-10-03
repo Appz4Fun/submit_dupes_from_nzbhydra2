@@ -588,3 +588,42 @@ def test_budget_end_counts_articles_most_servers_miss_as_missing():
     servers = dh.servers_from_nzbget_config(a.config(1) + b.config(2) + slow.config(3), max_conns=1)
     h = dh.check_many(servers, {"n": ids}, percent=100, probe=20, body_percent=0, budget=1.0)["n"]
     assert (h.present, h.missing) == (10, 10) and h.alive == 0.5
+
+
+def test_sample_bounds_are_configurable():
+    ids = ["c%d@x" % i for i in range(20000)]
+    servers = dh.servers_from_nzbget_config(FakeNntp(ids).config(1, connections=40), max_conns=20)
+    h = dh.check_many(servers, {"n": ids}, percent=5, body_percent=0, minimum=50, maximum=1000,
+                      limits=dh.Limits(1, 4))["n"]
+    assert h.checked == 1000 and h.present == 1000                       # 5% = 1000, not capped at 300
+    small = dh.check_many(servers, {"n": ids[:300]}, percent=5, body_percent=0, minimum=50, maximum=1000)["n"]
+    assert small.checked == 50
+
+
+def test_each_body_is_downloaded_by_one_server_only():
+    # all servers reach the first articles at once; the body (~750 KB live) needs fetching from one of them
+    ids = ["o%d@x" % i for i in range(10)]
+    srvs = [FakeNntp(ids) for _ in range(3)]
+    for s in srvs:
+        s.delay = 0.02
+    servers = dh.servers_from_nzbget_config([e for n, s in enumerate(srvs, 1) for e in s.config(n)])
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=10, body_percent=100, max_body=100)["n"]
+    assert h.alive == 1.0 and h.body_checked == 10
+    assert sum(len(s.bodies) for s in srvs) == 10
+
+
+def test_bad_body_is_tried_on_the_next_server():
+    ids = ["t%d@x" % i for i in range(10)]
+    soft, good = FakeNntp(ids, soft_dead=ids), FakeNntp(ids)
+    good.delay = 0.05                                                    # the soft-dead server claims first
+    servers = dh.servers_from_nzbget_config(soft.config(1) + good.config(2))
+    h = dh.check_many(servers, {"n": ids}, percent=100, probe=10, body_percent=100, max_body=100)["n"]
+    assert h.alive == 1.0 and set(good.bodies) == set(ids)
+
+
+def test_sample_env_vars():
+    import nzbget_dupe_proxy as ndp
+    c = ndp.Config.from_env({})
+    assert (c.health_percent, c.health_min_articles, c.health_max_articles, c.body_max_per_nzb) == (5.0, 50, 1000, 20)
+    c = ndp.Config.from_env({"HEALTH_MIN_ARTICLES": "10", "HEALTH_MAX_ARTICLES": "3000"})
+    assert (c.health_min_articles, c.health_max_articles) == (10, 3000)

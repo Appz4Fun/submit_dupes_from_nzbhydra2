@@ -60,13 +60,15 @@ class Config:
     state_dir: str = "/var/lib/nzbget-dupe-proxy"
     enabled: bool = True
     dry_run: bool = False
-    health_percent: float = 2.0   # STAT this % of each NZB's articles on all news servers (0 = off)
+    health_percent: float = 5.0   # STAT this % of each NZB's articles on all news servers (0 = off) ...
+    health_min_articles: int = 50   # ... but at least this many articles
+    health_max_articles: int = 1000  # ... and at most this many
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
     nzbs_to_check_concurrently: int = 10      # NZBs whose articles are checked at the same time
     nntp_server_connection_per_nzb: int = 1   # connections per news server for each NZB being checked
     max_conns_per_nntp_server: int = 20       # hard cap per server (also <= the server's nzbget Connections)
     body_percent: float = 20.0                # share of sampled articles that also get BODY + yEnc check ...
-    body_max_per_nzb: int = 5                 # ... but at most this many per NZB (every server downloads them)
+    body_max_per_nzb: int = 20                # ... but at most this many per NZB (one server downloads each)
     health_budget: float = 120.0  # s per health pass (probe of all donors / full samples of the rest)
     fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
     deadline: float = 60.0  # seconds after the primary append
@@ -642,7 +644,9 @@ class Proxy:
         try:
             yield from donor_health.check_iter(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget,
                                                full=full, limits=limits, body_percent=self.cfg.body_percent,
-                                               max_body=self.cfg.body_max_per_nzb)
+                                               max_body=self.cfg.body_max_per_nzb,
+                                               minimum=self.cfg.health_min_articles,
+                                               maximum=self.cfg.health_max_articles)
         except Exception as e:
             log.warning("health check failed for %s: %s", title, type(e).__name__)
 
