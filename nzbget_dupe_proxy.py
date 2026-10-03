@@ -338,18 +338,22 @@ def _int(v):
         return 0
 
 
+def target_score(alive, twin=False):
+    """DupeScore for a donor: the most whole first. nzbget tries dupes by highest DupeScore, so 9 + 80 * alive
+    share (unknown = 1.0): 100% alive = 89, 50% = 49; a byte-identical twin of the primary (same files and bytes:
+    article borrowing and whole-file recreation work best with it) gets +1, so it wins a tie. Always below the
+    primary's 100; 1 is reserved for dead postings."""
+    return min(90, 9 + round(80 * (1.0 if alive is None else alive)) + bool(twin))
+
+
 class Ranks:
-    """Unique donor DupeScores, always below the primary's 100. nzbget tries donors and backups by highest
-    DupeScore, so: byte-identical twins of the primary (same files and bytes: article borrowing and whole-file
-    recreation work best with them) score 50 + 40 * alive share, other packagings 10 + 39 * alive share
-    (unknown = 1.0); equal values count down (90, 89, ...)."""
+    """Unique donor DupeScores (target_score; equal values count down: 90, 89, ...)."""
 
     def __init__(self):
         self.used = set()
 
     def take(self, alive, twin=False):
-        a = 1.0 if alive is None else alive
-        score = 50 + round(40 * a) if twin else 10 + round(39 * a)
+        score = target_score(alive, twin)
         while score in self.used:
             score -= 1
         self.used.add(score)
@@ -357,6 +361,16 @@ class Ranks:
 
     def release(self, score):
         self.used.discard(score)
+
+
+@dataclass
+class Placed:
+    """A donor appended to nzbget, as last scored."""
+    id: int
+    score: int
+    alive: object  # share, or None if unknown
+    twin: bool
+    v: tuple       # (Result, nzb bytes, NzbInfo)
 
 
 def alive_of(health, v):
@@ -624,13 +638,13 @@ class Proxy:
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
-        ranks, added, fast_ids = Ranks(), 0, {}
+        ranks, added, placed = Ranks(), 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
         for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v), twin(v[2]))
             donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
             added += donor_id != 0
             if donor_id > 0:
-                fast_ids[v[2].fingerprint] = (donor_id, score, twin(v[2]))
+                placed[v[2].fingerprint] = Placed(donor_id, score, alive_of(probe, v), twin(v[2]), v)
         # then full samples of every donor at once, handled as each finishes: refine fast donors, add the rest
         todo = {v[2].fingerprint: (v, True) for v in live[:n_fast] if servers}
         todo.update({v[2].fingerprint: (v, False) for v in live[n_fast:]})
@@ -648,13 +662,17 @@ class Proxy:
             v, was_fast = entry
             health = {fp: h} if h else {}
             if was_fast:
-                if fp in fast_ids:
-                    self.rescore(path, auth, v, fast_ids[fp], health, ranks, stats)
+                if fp in placed:
+                    self.rescore(path, auth, placed[fp], health, ranks, stats)
             elif added >= cfg.donor_cap:
                 stats["over-cap"] += 1
             elif not self.dead(v, health, stats, "full sample"):
                 score = ranks.take(alive_of(health, v), twin(v[2]))
-                added += self.add_donor(key, category, path, auth, v, score, health, "checked", stats) != 0
+                donor_id = self.add_donor(key, category, path, auth, v, score, health, "checked", stats)
+                added += donor_id != 0
+                if donor_id > 0:
+                    placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
+        self.rerank(path, auth, placed.values(), dist, stats)
         primary_check.join()
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
@@ -741,27 +759,52 @@ class Proxy:
             log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
                      what)
 
-    def rescore(self, path, auth, v, added, health, ranks, stats):
+    def set_score(self, path, auth, donor_id, score, param=None):
+        """DupeScore (and a parameter) of a donor in history or, once nzbget moved it back, in the queue."""
+        for kind in ("History", "Group"):  # donors normally sit in history as dupe backups
+            if self.rpc_call(path, auth, "editqueue", [kind + "SetDupeScore", str(score), [donor_id]]):
+                if param:
+                    self.rpc_call(path, auth, "editqueue", [kind + "SetParameter", param, [donor_id]])
+                return True
+        return False
+
+    def rerank(self, path, auth, placed, dist, stats):
+        """Once every check is in: DupeScores in wholeness order (whole percent; then twin, closest size, grabs),
+        strictly falling, each at most its target_score. Donors were added in the order their checks finished,
+        so a wholer one can sit below a worse one until now."""
+        live = sorted((p for p in placed if p.score > 1), key=lambda p: (
+            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes),
+            -p.v[0].grabs))
+        prev = 100
+        for p in live:
+            want = max(2, min(target_score(p.alive, p.twin), prev - 1))
+            prev = want
+            if want == p.score:
+                continue
+            if self.set_score(path, auth, p.id, want):
+                log.info("reranked donor nzbid=%d %s [%s]: score %d -> %d, alive=%s", p.id, p.v[0].title,
+                         p.v[0].indexer, p.score, want, pct(p.alive))
+                p.score = want
+            else:
+                stats["rescore"] += 1
+
+    def rescore(self, path, auth, p, health, ranks, stats):
         """After its full sample, move a fast donor's DupeScore (and DupeAlive) to its real health."""
-        donor_id, old, is_twin = added
+        donor_id, old, is_twin, v = p.id, p.score, p.twin, p.v
         h = health.get(v[2].fingerprint)
         if h is None or h.alive is None:
             return
         dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
         ranks.release(old)
         new = 1 if dead else ranks.take(h.alive, is_twin)
-        alive = "DupeAlive=%d" % round(100 * h.alive)
-        for kind in ("History", "Group"):  # donors normally sit in history as dupe backups
-            if self.rpc_call(path, auth, "editqueue", [kind + "SetDupeScore", str(new), [donor_id]]):
-                self.rpc_call(path, auth, "editqueue", [kind + "SetParameter", alive, [donor_id]])
-                break
-        else:
+        if not self.set_score(path, auth, donor_id, new, "DupeAlive=%d" % round(100 * h.alive)):
             ranks.release(new)
             ranks.used.add(old)
             stats["rescore"] += 1
             log.warning("could not rescore donor nzbid=%d %s [%s]: keeps score %d, alive=%s", donor_id, v[0].title,
                         v[0].indexer, old, pct(h.alive))
             return
+        p.score, p.alive = new, h.alive
         if dead:
             stats["dead"] += 1
             self.state.mark_dead(v[2].fingerprint, sketch(v[2].message_ids))

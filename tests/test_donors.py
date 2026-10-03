@@ -63,7 +63,7 @@ def test_repost_other_formatting_and_size_accepted_with_donor_params(proxy, nzbg
     p = d["params"]
     assert p[0] == "Show S01E01 1080p WEB H264-GRP.nzb"
     assert base64.b64decode(p[1]) == donor
-    assert p[2:] == ["Series", 0, False, False, KEY, 49, "SCORE", []]     # other packaging (19 files): 10-49 band
+    assert p[2:] == ["Series", 0, False, False, KEY, 89, "SCORE", []]     # other packaging (19 files), whole
     assert d["path"] == "/jsonrpc" and d["auth"] == basic(*AUTH)
 
 

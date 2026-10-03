@@ -162,8 +162,8 @@ def test_dupescore_ranks_donors_by_alive_share(make_proxy, nzbget, hydra):
     by_prefix = {base64.b64decode(a["params"][1]).count(b">f-") > 0: a for a in nzbget.appends[1:]}
     full_d, partial_d = by_prefix[True], by_prefix[False]
     final = nzbget.final_scores()
-    assert final[full_d["id"]] == 49                            # other packaging: 10 + 39 * alive
-    assert 32 <= final[partial_d["id"]] <= 34                   # 10 + 39 * 0.6 after the full sample
+    assert final[full_d["id"]] == 89                            # other packaging: 9 + 80 * alive
+    assert 56 <= final[partial_d["id"]] <= 58                   # 9 + 80 * 0.6 after the full sample
     assert final[full_d["id"]] > final[partial_d["id"]]
     assert {"Name": "DupeAlive", "Value": "100"} in full_d["params"][9]
     assert any(c == "HistorySetParameter" and pr == "DupeAlive=60" for c, pr, _ in nzbget.edits)
@@ -523,7 +523,7 @@ def test_byte_identical_twin_outranks_other_packaging(make_proxy, nzbget, hydra)
     p.wait_idle(30)
     final = nzbget.final_scores()
     by = {base64.b64decode(a["params"][1]): final[a["id"]] for a in nzbget.appends[1:]}
-    assert by[twin] == 90 and by[other] == 49 and by[twin] < 100
+    assert by[twin] == 90 and by[other] == 89                       # equally whole: the twin first
 
 
 def test_dead_primary_is_demoted_while_hydra_is_still_searching(make_proxy, nzbget, hydra, caplog):
@@ -627,3 +627,23 @@ def test_sample_env_vars():
     assert (c.health_percent, c.health_min_articles, c.health_max_articles, c.body_max_per_nzb) == (5.0, 50, 1000, 20)
     c = ndp.Config.from_env({"HEALTH_MIN_ARTICLES": "10", "HEALTH_MAX_ARTICLES": "3000"})
     assert (c.health_min_articles, c.health_max_articles) == (10, 3000)
+
+
+def test_final_dupescores_rank_the_most_whole_donor_first(make_proxy, nzbget, hydra):
+    # nzbget tries dupes by DupeScore: after every check, the order must be wholeness first (twin breaks a
+    # tie), whatever order the donors were added in
+    prim = release(TITLE, prefix="p")
+    twin90, twin100 = release(TITLE, prefix="t"), release(TITLE, prefix="w")
+    other100, other95 = release(TITLE, prefix="o", n_files=11), release(TITLE, prefix="q", n_files=12)
+    t_ids, q_ids = article_ids(twin90), article_ids(other95)
+    alive = (article_ids(prim) + t_ids[: len(t_ids) * 9 // 10] + article_ids(twin100) + article_ids(other100)
+             + q_ids[: len(q_ids) * 95 // 100])
+    nzbget.config_entries = FakeNntp(alive).config(1)
+    for d, grabs in ((twin90, 50), (other95, 40), (twin100, 1), (other100, 1)):
+        hydra.add(TITLE, d, grabs=grabs)
+    p = make_proxy(health_percent=100, fast_donors=2)
+    post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
+    p.wait_idle(30)
+    final = nzbget.final_scores()
+    by = {base64.b64decode(a["params"][1]): final[a["id"]] for a in nzbget.appends[1:]}
+    assert [by[d] for d in (twin100, other100, other95, twin90)] == [90, 89, 85, 82]
