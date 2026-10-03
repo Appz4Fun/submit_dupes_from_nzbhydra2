@@ -140,7 +140,7 @@ def test_fetches_capped(make_proxy, nzbget, hydra):
     for _ in range(10):
         hydra.add(TITLE, b"garbage", size=nzb_total(primary()))
     append(p, primary())
-    assert len(hydra.fetches) == 3                    # 3 * MAX_DONORS
+    assert len(set(hydra.fetches)) == 3               # 3 * MAX_DONORS candidates (each retried once)
 
 
 def test_hydra_dupekey_kept(proxy, nzbget, hydra):
@@ -305,3 +305,19 @@ def test_max_donors_zero_or_negative_is_unlimited(make_proxy, nzbget, hydra):
 def test_default_max_donors_is_unlimited():
     import nzbget_dupe_proxy as ndp
     assert ndp.Config.from_env({}).max_donors == 0
+
+
+def test_transient_indexer_error_is_retried_once(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, release(TITLE, prefix="r"), flaky=1)
+    append(proxy, primary())
+    assert len(donors(nzbget)) == 1
+    assert "Request limit reached" in " ".join(r.getMessage() for r in caplog.records)   # what the indexer said
+
+
+def test_persistent_indexer_error_still_rejected(proxy, nzbget, hydra, caplog):
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, release(TITLE, prefix="r"), flaky=5)
+    append(proxy, primary())
+    assert donors(nzbget) == []
+    assert "'parse': 1" in summary(caplog)

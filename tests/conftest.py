@@ -9,6 +9,11 @@ import nzbget_dupe_proxy as ndp  # noqa: E402
 from tests.fakes import FakeHydra, FakeNzbget  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def fast_retries(monkeypatch):
+    monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0.01)
+
+
 @pytest.fixture
 def nzbget():
     f = FakeNzbget()

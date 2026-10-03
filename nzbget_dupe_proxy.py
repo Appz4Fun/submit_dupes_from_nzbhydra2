@@ -33,6 +33,7 @@ import donor_health  # noqa: E402  (sampled STAT on all news servers, vendored c
 log = logging.getLogger("nzbget-dupe-proxy")
 GROUP_WINDOW = 600        # s: appends of the same release within this window share one DupeKey
 STATE_TTL = 30 * 86400   # s: forget groups after this
+FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
 EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
                     r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
@@ -414,19 +415,25 @@ class Proxy:
             qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
         return qs
 
-    def fetch(self, r, deadline):
-        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'."""
-        timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
-        try:
-            with urllib.request.urlopen(r.link, timeout=timeout) as resp:
-                data = resp.read()
-        except OSError as e:
-            log.info("donor fetch failed %s (%s): %s", r.title, r.indexer, mask(e))
-            return "fetch", None, None
-        try:
-            return "ok", data, parse_nzb(data)
-        except ValueError:
-            return "parse", None, None
+    def fetch(self, r, deadline, retries=1):
+        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'. Indexers answer rate limits with
+        403/429 or an error body, often only for a moment, so a failed fetch is retried once."""
+        for attempt in range(retries + 1):
+            timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
+            try:
+                with urllib.request.urlopen(r.link, timeout=timeout) as resp:
+                    data = resp.read()
+            except OSError as e:
+                reason, why = "fetch", mask(e)
+            else:
+                try:
+                    return "ok", data, parse_nzb(data)
+                except ValueError:
+                    reason, why = "parse", "not an NZB: %r" % mask(data[:160].decode("utf-8", "replace"))
+            log.info("donor %s failed %s (%s), attempt %d: %s", reason, r.title, r.indexer, attempt + 1, why)
+            if attempt < retries and time.time() + FETCH_RETRY_DELAY < deadline:
+                time.sleep(FETCH_RETRY_DELAY)
+        return reason, None, None
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}

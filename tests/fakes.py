@@ -97,6 +97,9 @@ class _HydraHandler(BaseHTTPRequestHandler):
             o.fetches.append(self.path)
             time.sleep(o.fetch_delay)
             it = o.items[int(self.path.split("/")[2].split("?")[0])]
+            if it.flaky > 0:                        # transient indexer hiccup: error body with HTTP 200
+                it.flaky -= 1
+                return self._send(200, b'<?xml version="1.0"?><error code="429" description="Request limit reached"/>')
             if it.status != 200:
                 return self._send(it.status, b"nope")
             return self._send(200, it.nzb)
@@ -115,10 +118,10 @@ class FakeHydra:
         self.delay = self.fetch_delay = 0.0
         serve(_HydraHandler, self)
 
-    def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200):
+    def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200, flaky=0):
         info_size = size if size is not None else nzb_total(nzb)
         self.items.append(SimpleNamespace(title=title, nzb=nzb, size=info_size, grabs=grabs,
-                                          age_days=age_days, status=status))
+                                          age_days=age_days, status=status, flaky=flaky))
 
     def item_xml(self, i, it):
         link = "%s/getnzb/%d?apikey=KEY" % (self.url, i)
