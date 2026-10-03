@@ -108,10 +108,12 @@ def plan(ids, percent, body_percent=20, minimum=20, maximum=300, seed=0, max_bod
 
 
 async def _quit(conn):
-    """Close politely (QUIT, wait for 205) so the server has ended the session before its slot is reused."""
+    """Close politely: QUIT, its 205, then wait (briefly) until the server closes its end, so the session is
+    really gone on the server before this connection's slot is reused."""
     if conn._writer is not None:
         try:
             await asyncio.wait_for(conn._send_command("QUIT"), 5)
+            await asyncio.wait_for(conn._reader.read(), 2)  # EOF once the server has closed the session
         except Exception:
             pass
     await conn.close()
