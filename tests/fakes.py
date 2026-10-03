@@ -134,15 +134,19 @@ class FakeHydra:
         self.fetch_times = []
         serve(_HydraHandler, self)
 
-    def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200, flaky=0):
+    def add(self, title, nzb, size=None, grabs=0, age_days=1, status=200, flaky=0, posted=None, indexer=None):
+        """posted: the listing's usenetdate (epoch); by default 10 min before the previous item's, as distinct
+        postings are. Several items with the same size and `posted` are one posting listed by several indexers."""
         info_size = size if size is not None else nzb_total(nzb)
-        self.items.append(SimpleNamespace(title=title, nzb=nzb, size=info_size, grabs=grabs,
-                                          age_days=age_days, status=status, flaky=flaky))
+        if posted is None:
+            posted = time.time() - age_days * 86400 - 600 * len(self.items)
+        self.items.append(SimpleNamespace(title=title, nzb=nzb, size=info_size, grabs=grabs, posted=posted,
+                                          status=status, flaky=flaky, indexer=indexer or "idx%d" % len(self.items)))
 
     def item_xml(self, i, it):
         link = "%s/getnzb/%d?apikey=KEY" % (self.url, i)
-        date = format_datetime(datetime.fromtimestamp(time.time() - it.age_days * 86400, timezone.utc))
-        attrs = {"size": it.size, "grabs": it.grabs, "usenetdate": date, "guid": "g%d" % i, "hydraIndexerName": "idx%d" % i}
+        date = format_datetime(datetime.fromtimestamp(it.posted, timezone.utc))
+        attrs = {"size": it.size, "grabs": it.grabs, "usenetdate": date, "guid": "g%d" % i, "hydraIndexerName": it.indexer}
         a = "".join('<newznab:attr name="%s" value="%s"/>' % (k, escape(str(v))) for k, v in attrs.items())
         return ("<item><title>%s</title><link>%s</link><guid>g%d</guid><size>%d</size>%s</item>"
                 % (escape(it.title), escape(link), i, it.size, a))

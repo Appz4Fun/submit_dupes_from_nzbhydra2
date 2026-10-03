@@ -40,6 +40,8 @@ STATE_TTL = 30 * 86400   # s: forget groups after this
 DEAD_TTL = 3 * 86400     # s: remember postings found dead (taken-down articles do not come back)
 FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
 SEARCH_PAGE, SEARCH_PAGES = 100, 5  # Hydra results per request, and pages read when a query fills them
+RELIST_WINDOW = 120.0     # s: listings of one size posted this close together are one posting on several indexers
+INDEXER_COOLDOWN = 1800.0  # s an indexer is not asked for NZBs after it refused one (403/429: its grab limit)
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
 EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
                     r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
@@ -250,6 +252,21 @@ def candidate_ok(primary_title, primary_bytes, r, tol):
     return same_release(primary_title, r.title)
 
 
+def group_listings(results):
+    """Hydra results -> lists of listings of one posting: same size, posted within RELIST_WINDOW (indexers list
+    a posting with its own usenetdate, a few seconds apart). A repost of the same files has the same size but
+    another posting time. Listings without a date stay alone."""
+    groups, last = [], None
+    for r in sorted(results, key=lambda r: (r.size, r.date)):
+        if last is not None and r.date and last[0].date and r.size == last[0].size and \
+                r.date - last[0].date <= RELIST_WINDOW:
+            last.append(r)
+        else:
+            last = [r]
+            groups.append(last)
+    return groups
+
+
 def mask(text):
     """Hide apikeys and user:password pairs in URLs/paths before logging."""
     text = re.sub(r"(?i)(apikey=)[^&\s]+", r"\1***", str(text))
@@ -384,6 +401,11 @@ class Proxy:
     def __init__(self, cfg):
         self.cfg, self.state = cfg, State(cfg.state_dir)
         self.workers, self.server, self.workers_lock = [], None, threading.Lock()
+        self.refused, self.indexer_locks = {}, {}  # indexer -> refused until; indexer -> one fetch at a time
+
+    def _indexer_lock(self, indexer):
+        with self.workers_lock:
+            return self.indexer_locks.setdefault(indexer, threading.Lock())
 
     def forward(self, path, body, headers, method="POST"):
         """Send a request to nzbget unchanged; returns (status, body, content-type)."""
@@ -488,24 +510,53 @@ class Proxy:
         return qs
 
     def fetch(self, r, deadline, retries=1):
-        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch' or 'parse'. Indexers answer rate limits with
-        403/429 or an error body, often only for a moment, so a failed fetch is retried once."""
+        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch', 'parse' or 'refused'. Indexers answer rate limits
+        with 403/429 or an error body, sometimes only for a moment, so a failed fetch is retried once; an indexer
+        still refusing (403/429) is not asked again for INDEXER_COOLDOWN. One fetch per indexer at a time, so
+        its refusal is known before the next grab."""
+        with self._indexer_lock(r.indexer):
+            if self.refused.get(r.indexer, 0) > time.time():
+                return "refused", None, None
+            reason, data, info, status = self._fetch(r, deadline, retries)
+            if status in (403, 429):
+                self.refused[r.indexer] = time.time() + INDEXER_COOLDOWN
+                log.info("indexer %s refused NZB downloads (HTTP %d): skipping it for %d min", r.indexer, status,
+                         INDEXER_COOLDOWN // 60)
+            return reason, data, info
+
+    def _fetch(self, r, deadline, retries):
+        status = None
         for attempt in range(retries + 1):
             timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:
                     data = resp.read()
             except OSError as e:
-                reason, why = "fetch", mask(e)
+                reason, why, status = "fetch", mask(e), getattr(e, "code", None)
             else:
+                status = None
                 try:
-                    return "ok", data, parse_nzb(data)
+                    return "ok", data, parse_nzb(data), None
                 except ValueError:
                     reason, why = "parse", "not an NZB: %r" % mask(data[:160].decode("utf-8", "replace"))
             log.info("donor %s failed %s (%s), attempt %d: %s", reason, r.title, r.indexer, attempt + 1, why)
             if attempt < retries and time.time() + FETCH_RETRY_DELAY < deadline:
                 time.sleep(FETCH_RETRY_DELAY)
-        return reason, None, None
+        return reason, None, None, status
+
+    def fetch_posting(self, listings, deadline):
+        """One NZB of a posting listed by several indexers: its listings in turn until one is fetched.
+        -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
+        stats, last = Counter(), (listings[0], "fetch", None, None)
+        for j, r in enumerate(listings):
+            reason, data, ci = self.fetch(r, deadline)
+            if reason == "ok":
+                if j + 1 < len(listings):
+                    stats["relisted"] += len(listings) - j - 1  # never fetched: the same posting
+                return r, reason, data, ci, stats
+            stats[reason] += 1
+            last = (r, reason, None, None)
+        return last + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0):
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
@@ -529,9 +580,13 @@ class Proxy:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
             cands = sorted((r for r in results.values() if r.link and candidate_ok(
                 title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
-            # one posting of each distinct size first (same size is often the same posting), then the rest
-            first_of_size = {r.size: r for r in reversed(cands)}
-            order = sorted(cands, key=lambda r: first_of_size[r.size] is not r)
+            rank = {id(r): i for i, r in enumerate(cands)}
+            # postings (each listed by one or more indexers; most grabbed listing first), best listing first,
+            # then one posting of each distinct size before the rest
+            order = sorted((sorted(g, key=lambda r: rank[id(r)]) for g in group_listings(cands)),
+                           key=lambda g: rank[id(g[0])])
+            first_of_size = {g[0].size: g for g in reversed(order)}
+            order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab
                 order = order[:3 * cfg.max_donors]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
@@ -541,9 +596,9 @@ class Proxy:
                     stats["deadline"] += len(order) - i
                     break
                 chunk = order[i:i + 4]
-                for r, (reason, data, ci) in zip(chunk, pool.map(self.fetch, chunk, [deadline] * len(chunk))):
+                for r, reason, data, ci, tried in pool.map(self.fetch_posting, chunk, [deadline] * len(chunk)):
+                    stats.update(tried)
                     if reason != "ok":
-                        stats[reason] += 1
                         continue
                     if r.size and abs(ci.total_bytes - r.size) > 0.02 * r.size:
                         stats["listing-mismatch"] += 1  # the indexer served some other NZB than it lists

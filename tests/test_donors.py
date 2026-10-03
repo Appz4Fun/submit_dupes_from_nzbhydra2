@@ -391,3 +391,44 @@ def test_nzbget_copy_with_reuploaded_segment_still_counts(proxy, nzbget, hydra, 
     hydra.add(TITLE, donor)
     append(proxy, primary())
     assert donors(nzbget) == []
+
+
+def test_one_posting_listed_by_several_indexers_is_fetched_once(proxy, nzbget, hydra, caplog):
+    # same size, same posting time: one posting, re-listed (each fetch costs an indexer grab)
+    caplog.set_level(logging.INFO)
+    when = time.time() - 86400
+    for i, idx in enumerate(["slug", "finder", "ninja"]):
+        hydra.add(TITLE, release(TITLE, prefix="r"), grabs=i, posted=when + i, indexer=idx)
+    append(proxy, primary())
+    assert len(hydra.fetches) == 1 and len(donors(nzbget)) == 1
+    assert "'relisted': 2" in summary(caplog)
+
+
+def test_same_size_reposts_at_other_times_are_all_fetched(proxy, nzbget, hydra):
+    # byte-identical reposts have the same size but another posting time: the most useful donors
+    for p in ("r1", "r2", "r3"):
+        hydra.add(TITLE, release(TITLE, prefix=p))
+    append(proxy, primary())
+    assert len(hydra.fetches) == 3 and len(donors(nzbget)) == 3
+
+
+def test_failed_fetch_falls_back_to_another_listing_of_the_same_posting(proxy, nzbget, hydra):
+    when = time.time() - 86400
+    hydra.add(TITLE, release(TITLE, prefix="r"), grabs=9, posted=when, status=403, indexer="capped")
+    hydra.add(TITLE, release(TITLE, prefix="r"), grabs=1, posted=when + 5, indexer="other")
+    append(proxy, primary())
+    (d,) = donors(nzbget)
+    assert base64.b64decode(d["params"][1]) == release(TITLE, prefix="r")
+
+
+def test_indexer_that_refused_is_not_asked_again(proxy, nzbget, hydra, caplog):
+    # a 403 from an indexer is its download limit: further grabs there only fail (and count against it)
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, release(TITLE, prefix="a"), grabs=9, status=403, indexer="capped")
+    for p in ("b", "c", "d"):
+        hydra.add(TITLE, release(TITLE, prefix=p), status=403, indexer="capped")
+    hydra.add(TITLE, release(TITLE, prefix="e"), indexer="open")
+    append(proxy, primary())
+    capped = [f for f in hydra.fetches if hydra.items[int(f.split("/")[2].split("?")[0])].indexer == "capped"]
+    assert len(capped) == 2                                              # the first grab and its one retry
+    assert len(donors(nzbget)) == 1 and "'refused': 3" in summary(caplog)
