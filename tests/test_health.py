@@ -492,6 +492,7 @@ def test_dead_primary_is_demoted_before_the_first_donor_arrives(make_proxy, nzbg
     prim, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d")
     nzbget.config_entries = FakeNntp(article_ids(donor)).config(1)       # primary: nothing on any server
     hydra.add(TITLE, donor)
+    hydra.fetch_delay = 0.3                                               # an indexer download takes a while
     p = make_proxy()
     post(p.url + "/jsonrpc", append_body(prim, title=TITLE), auth=("admin", "pw"))
     p.wait_idle(30)
