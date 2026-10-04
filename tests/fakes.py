@@ -253,6 +253,9 @@ class _NntpHandler(socketserver.StreamRequestHandler):
                 time.sleep(o.delay)
                 with o.lock:
                     (o.stats if verb == "STAT" else o.bodies).append(mid)
+                if verb == "BODY" and mid in o.drop_on_body:                 # connection dies mid-download
+                    o.drop_on_body.discard(mid)
+                    return
                 has = mid in o.articles and not (verb == "BODY" and mid in o.soft_dead)
                 if verb == "STAT":
                     self.wfile.write(("223 0 <%s>\r\n" % mid if has else "%d no such article\r\n" % o.missing_code).encode())
@@ -271,9 +274,10 @@ class FakeNntp:
     soft_dead: ids whose STAT says 223 but whose BODY is gone (430). missing_code: the answer for a missing
     article (some providers say 451, not 430). Tracks sessions and concurrent connections."""
 
-    def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430):
+    def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430, drop_on_body=()):
         self.articles, self.password, self.soft_dead = set(articles), password, set(soft_dead)
         self.missing_code, self.sessions, self.pipelined = missing_code, 0, 0
+        self.drop_on_body = set(drop_on_body)  # the first BODY of these ids closes the connection
         self.stats, self.bodies, self.delay = [], [], 0.0
         self.lock, self.active, self.max_active = threading.Lock(), 0, 0
         srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), type("H", (_NntpHandler,), {}))

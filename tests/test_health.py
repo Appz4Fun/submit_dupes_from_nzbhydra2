@@ -659,3 +659,20 @@ def test_stat_requests_are_pipelined_on_one_connection():
     h = dh.check_many(servers, {"n": ids}, percent=100, probe=64, body_percent=0)["n"]
     assert h.present == 64 and srv.sessions == 1
     assert srv.pipelined >= 32
+
+
+def test_connection_lost_during_a_body_keeps_the_batch_stat_answers():
+    ids = ["k%d@x" % i for i in range(8)]
+    srv = FakeNntp(ids, drop_on_body=ids[:1])
+    servers = dh.servers_from_nzbget_config(srv.config(1))
+    items = [(m, i == 0) for i, m in enumerate(ids)]                 # only the first gets a BODY check
+    import asyncio
+    pools = [dh._Pool(s) for s in servers]
+
+    async def run():
+        try:
+            return await dh._check_nzb(pools, items, 1, asyncio.get_running_loop().time() + 5)
+        finally:
+            await pools[0].close()
+    h = asyncio.run(run())
+    assert h.present >= 7                                            # the STATs answered before the drop count

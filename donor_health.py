@@ -218,12 +218,12 @@ class _Pool:
             _drop(conn)
             self.slots.give_back()
             raise
-        except Exception:
+        except Exception as exc:
             self.errors += 1
             if self.errors >= SERVER_GIVE_UP:
                 self.down_until = asyncio.get_running_loop().time() + SERVER_RETRY_AFTER
             await conn.close()
-            answers = ["error"] * len(batch)
+            answers = getattr(exc, "answers", None) or ["error"] * len(batch)  # STATs answered before it broke
         else:
             self.errors = 0
         if self.errors >= SERVER_GIVE_UP:
@@ -245,12 +245,15 @@ class _Pool:
         except asyncio.TimeoutError as exc:
             raise TransientNntpError("command timeout") from exc
         codes = [(await conn._read_response())[0] for _ in batch]
-        out = []
-        for (mid, gate), code in zip(batch, codes):
-            if code != 223:
-                out.append("missing" if code == 430 else "error")
-            else:
-                out.append(await _Pool._body(conn, mid, gate) if gate else "present")
+        out = ["present" if code == 223 else "missing" if code == 430 else "error" for code in codes]
+        for j, ((mid, gate), code) in enumerate(zip(batch, codes)):
+            if gate and code == 223:
+                try:
+                    out[j] = await _Pool._body(conn, mid, gate)
+                except Exception as exc:  # the connection broke mid-body: keep the STAT answers already in
+                    rest = zip(batch[j + 1:], codes[j + 1:], out[j + 1:])
+                    exc.answers = out[:j] + ["error"] + ["error" if g and c == 223 else a for (_, g), c, a in rest]
+                    raise
         return out
 
     @staticmethod
