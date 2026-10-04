@@ -112,6 +112,21 @@ New rules:
 
 The `verify()` byte/count rule is removed.
 
+## Design change (2026-10-03, after a live audit)
+
+The user asked for many donors, ranked most whole first, and for more STAT and BODY checking. A live audit
+on the server found the following.
+
+| Finding | Evidence | Change |
+|---|---|---|
+| A missing article took 10+ s to settle. | super.newsgroupdirect.com answers `451`, not `430`. cyclops treated that as a protocol error and closed the connection, and the server paused for 30 s after three errors. A dead NZB's 10 probe articles took 100–260 s. | A reply line is an answer on a healthy connection. `451` counts as an error vote, and the connection stays open. A server in its error pause abstains. |
+| Alive shares came out too high. | Present articles settle at the first hit, while missing ones wait for every server. When the budget ran out, the unanswered articles were mostly missing ones. An NZB that is 12% alive read as 57%. | When the budget runs out, an unsettled article counts as missing if at least half of the servers said so and none had it. |
+| `HEALTH_PERCENT` above about 2.6% had no effect. | Samples were capped at 300 articles, and a 2160p episode has about 11,000. | The defaults are now 5% of the articles, from 50 to 1,000 (`HEALTH_MIN_ARTICLES`, `HEALTH_MAX_ARTICLES`), and 20 BODY checks per NZB. Each body is downloaded by one server at a time. |
+| The check had 1 connection per server. | Since 2026-10-03, nzbget sets `Connections=2` for every server, and the check takes at most half. | `STAT` commands are pipelined, from 4 up to 16 per round trip, adapting to each server. Pipelining is about 10× faster on servers limited by network latency. |
+| Indexer grab limits ran out, and donors were lost to `403`. | Sugar S01E07 had 67 candidates but only 17 postings, and the proxy fetched every listing: 36 fetches were `same-posting` and 15 failed with `403`. | Listings with the same size and posted within 2 minutes of each other are one posting, fetched once, with fallback to its next listing. An indexer that still answers `403` or `429` after the retry is skipped for 30 minutes, with one fetch per indexer at a time. |
+| Donors scored about 98% alive downloaded nothing. | nzbget IDs 1488 and 2173 scored 89 under the code from before health checks existed, but nzbget fetched 2 of about 11,000 articles. Live `STAT` and `BODY` checks agree that they are 7–12% alive. | No new change is needed: the current full sample drops them. |
+| Twins outranked more whole postings. | The bands were 50–90 for twins and 10–49 for other packagings, so a 60%-alive twin went before a 100%-alive repack. | `DupeScore = 9 + 80 × alive`, plus 1 for a twin. After every check, all donors are re-ranked into strictly falling scores. The PR 850 session was asked whether it depends on the old bands and hasn't answered yet. |
+
 ## File Structure
 
 | File | Responsibility |
