@@ -1,0 +1,6016 @@
+{
+ "generated_by": "nzbget-dupe-proxy same_release() on live Hydra results",
+ "short_query": {
+  "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX": "industry s03e07 2160p",
+  "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb": "shrinking s02e06 2160p",
+  "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR": "lucifer s02e14 1080p"
+ },
+ "cases": [
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "same_release": true,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "flux",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-FLUX",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.hdr.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "flux",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry S03E07 Useful Idiot 2160p MAX WEB-DL DDP5 1 Atmos DV H 265-FLUX",
+   "same_release": true,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "flux",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry S03E07 Useful Idiot 2160p MAX WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.hdr.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "flux",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.2020.S03E07.GERMAN.DUBBED.DL.2160p.DV.HDR.WEB.H265-TSCC",
+   "same_release": false,
+   "normalized": "industry.2020.s03e07.german.dubbed.dl.2160p.dv.hdr.web.h265.tscc",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "tscc",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": 2020,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry (2020) S03E07 (2160p MAX WEB-DL H265 DV HDR DDP Atmos 5.1 English - HONE)",
+   "same_release": false,
+   "normalized": "industry.2020.s03e07.2160p.max.web.dl.h265.dv.hdr.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": 2020,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.GERMAN.DL.DV.HDR.2160p.WEB.h265-KNOEDEL",
+   "same_release": false,
+   "normalized": "industry.s03e07.german.dl.dv.hdr.2160p.web.h265.knoedel",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "knoedel",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.2024.S03E07.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1.Atmos-PTerWEB",
+   "same_release": false,
+   "normalized": "industry.2024.s03e07.2160p.max.web.dl.x265.dv.hdr.ddp5.1.atmos.pterweb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "pterweb",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": 2024,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.HDR.HEVC.DUAL-SiGLA",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.hmax.web.dl.ddp5.1.atmos.dv.hdr.hevc.dual.sigla",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "hbo"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "sigla",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.HDR.DoVi.x265-NTb",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.hdr.dovi.x265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "ntb",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.POLiSH.DV.HDR.2160p.WEB.H265-CHOPiN",
+   "same_release": false,
+   "normalized": "industry.s03e07.polish.dv.hdr.2160p.web.h265.chopin",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "chopin",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.MULTi.DV.HDR.2160p.WEB.x265-UKDTV",
+   "same_release": false,
+   "normalized": "industry.s03e07.multi.dv.hdr.2160p.web.x265.ukdtv",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "ukdtv",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.DoVi.x265-NTb",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.dovi.x265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "ntb",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.2020.S03E07.2160p.MAX.WEB-DL.H265.DV.HDR.DDP.Atmos.5.1.English-HONE",
+   "same_release": false,
+   "normalized": "industry.2020.s03e07.2160p.max.web.dl.h265.dv.hdr.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "hone",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": 2020,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry 2020 S03E07 2160p MAX WEB-DL H265 DV HDR DDP Atmos 5 1 English-HONE",
+   "same_release": false,
+   "normalized": "industry.2020.s03e07.2160p.max.web.dl.h265.dv.hdr.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "hone",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": 2020,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry S03E07 Useful Idiot 2160p MAX WEB-DL DDP5 1 Atmos DV H 265-",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.h.265",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.h.265",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-",
+   "same_release": false,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.hdr.h.265",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.DV.HDR.2160p.WEB.H265-SuccessfulCrab",
+   "same_release": false,
+   "normalized": "industry.s03e07.dv.hdr.2160p.web.h265.successfulcrab",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "industry",
+    "group": "successfulcrab",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "candidate": "Industry.S03E07.Useful.Idiot.2160p.MAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "same_release": true,
+   "normalized": "industry.s03e07.useful.idiot.2160p.max.web.dl.ddp5.1.atmos.dv.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "industry",
+    "group": "flux",
+    "seasons": [
+     3
+    ],
+    "episodes": [
+     7
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "same_release": true,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.hdr.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 DV HDR H 265-NTb",
+   "same_release": true,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.hdr.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.in.a.Lonely.Place.2160p.ATVp.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "same_release": true,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.hdr.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2023.S02E06.German.DL.Atmos.2160p.ATVP.WEB.H265-ZeroTwo",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.german.dl.atmos.2160p.atvp.web.h265.zerotwo",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos"
+    ],
+    "channels": [],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "zerotwo",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2023.S02E06.German.DL.Atmos.2160p.DV.ATVP.WEB.H265-WAREZCX",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.german.dl.atmos.2160p.dv.atvp.web.h265.warezcx",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos"
+    ],
+    "channels": [],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "warezcx",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.2160p.WEBRip.DDP.5.1.Atmos.DV.HDR10Plus.x265.10bit-MarkII",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.2160p.webrip.ddp.5.1.atmos.dv.hdr10plus.x265.10bit.markii",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr10"
+    ],
+    "title": "shrinking",
+    "group": "markii",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.10bit.ATVP.WEB-DL.DDP5.1.HEVC-Vyndros",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.10bit.atvp.web.dl.ddp5.1.hevc.vyndros",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "vyndros",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2023.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR10P.H.265-DWTP",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr10p.h.265.dwtp",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "dwtp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.NORDiC.2160p.SDR.WEB-DL.DDP5.1.Atmos.H.265-NorTekst",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.nordic.2160p.sdr.web.dl.ddp5.1.atmos.h.265.nortekst",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "shrinking",
+    "group": "nortekst",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2024.S02E06.2160p.ATVP.WEB-DL.H.265.HDR10+.DDP5.1.Atmos-AilMWeb",
+   "same_release": false,
+   "normalized": "shrinking.2024.s02e06.2160p.atvp.web.dl.h.265.hdr10.ddp5.1.atmos.ailmweb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "hdr10"
+    ],
+    "title": "shrinking",
+    "group": "ailmweb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2024,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.2160p.ATVP.WEB-DL.DDPA5.1.HDR.DV.HEVC-NTb",
+   "same_release": true,
+   "normalized": "shrinking.s02e06.2160p.atvp.web.dl.ddpa5.1.hdr.dv.hevc.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking (2023) S02E06 (2160p ATVP WEB-DL H265 SDR DDP Atmos 5.1 English - HONE)",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.2160p.atvp.web.dl.h265.sdr.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "shrinking",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2023.S02E06.2160p.ATVP.WEB-DL.H265.SDR.DDP.Atmos.5.1.English-HONE",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.2160p.atvp.web.dl.h265.sdr.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "shrinking",
+    "group": "hone",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.2023.S02E06.2160p.ATVP.WEB-DL.Hybrid.H265.DV.HDR10+.DDP.Atmos.5.1.English-HONE",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.2160p.atvp.web.dl.hybrid.h265.dv.hdr10.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr10"
+    ],
+    "title": "shrinking",
+    "group": "hone",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking (2023) S02E06 (2160p ATVP WEB-DL Hybrid H265 DV HDR10+ DDP Atmos 5.1 English - HONE)",
+   "same_release": false,
+   "normalized": "shrinking.2023.s02e06.2160p.atvp.web.dl.hybrid.h265.dv.hdr10.ddp.atmos.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr10"
+    ],
+    "title": "shrinking",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": 2023,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.H.265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.H.265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-Kitsune",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr.h.265.kitsune",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "kitsune",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-Kitsune",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.h.265.kitsune",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "kitsune",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.Atmos.H.265-Kitsune",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.h.265.kitsune",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "kitsune",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.H.265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.HDR.2160p.WEB.H265-SuccessfulCrab",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.hdr.2160p.web.h265.successfulcrab",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "successfulcrab",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.HDR.2160p.WEB.H265-SuccessfulCrab-TGx-",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.hdr.2160p.web.h265.successfulcrab.tgx",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "tgx",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.Un.Luogo.Solitario.ITA-ENG.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-gattopollo.mkv-[N-Z-B]",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.un.luogo.solitario.ita.eng.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr.h.265.gattopollo.mkv",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "gattopollo",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.s02e06.web.hdr.2160p.av1.5.1.e-ac3.vmaf99-Rosy",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.web.hdr.2160p.av1.5.1.e.ac3.vmaf99.rosy",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "av1"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "rosy",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.Un.Luogo.Solitario.ITA-ENG.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-gattopollo",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.un.luogo.solitario.ita.eng.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr.h.265.gattopollo",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "gattopollo",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.DV.2160p.WEB.H265-SuccessfulCrab",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.dv.2160p.web.h265.successfulcrab",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "successfulcrab",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.2160p.WEB.H265-SuccessfulCrab",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.2160p.web.h265.successfulcrab",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "successfulcrab",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.iTALiAN.DV.2160p.WEB.H265-NEUROSiS",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.italian.dv.2160p.web.h265.neurosis",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "neurosis",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.GERMAN.DL.HDR.2160p.WEB.h265-SAUERKRAUT",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.german.dl.hdr.2160p.web.h265.sauerkraut",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "sauerkraut",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.iTALiAN.HDR.2160p.WEB.H265-NEUROSiS",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.italian.hdr.2160p.web.h265.neurosis",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "neurosis",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.GERMAN.DL.DV.2160p.WEB.h265-SAUERKRAUT",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.german.dl.dv.2160p.web.h265.sauerkraut",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "sauerkraut",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.GERMAN.DL.2160p.WEB.h265-SAUERKRAUT",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.german.dl.2160p.web.h265.sauerkraut",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "sauerkraut",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 Atmos H 265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 Atmos DV H 265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 Atmos DV HDR H 265-FLUX",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.atmos.dv.hdr.h.265.flux",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "atmos",
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "flux",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 DV H 265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking S02E06 In a Lonely Place 2160p ATVP WEB-DL DDP5 1 H 265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.in.a.Lonely.Place.2160p.ATVp.WEB-DL.DDP5.1.DV.H.265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.in.a.Lonely.Place.2160p.ATVp.WEB-DL.DDP5.1.H.265-NTb",
+   "same_release": false,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "candidate": "Shrinking.S02E06.In.a.Lonely.Place.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR.H.265-NTb",
+   "same_release": true,
+   "normalized": "shrinking.s02e06.in.a.lonely.place.2160p.atvp.web.dl.ddp5.1.dv.hdr.h.265.ntb",
+   "attrs": {
+    "resolution": [
+     "2160p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "apple",
+     "tv"
+    ],
+    "edition": [],
+    "hdr": [
+     "dv",
+     "hdr"
+    ],
+    "title": "shrinking",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     6
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "same_release": true,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.dts.hd.ma.5.1.avc.remux.framestor",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "framestor",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 Candy Morningstar 1080p DTS-HD MA 5 1 AVC REMUX-FraMeSToR",
+   "same_release": true,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.dts.hd.ma.5.1.avc.remux.framestor",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "framestor",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.REPACK.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-EPSiLON",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.repack.1080p.bluray.remux.avc.dts.hd.ma.5.1.epsilon",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray",
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "epsilon",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.BluRay.X264-DEFLATE",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.bluray.x264.deflate",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "deflate",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.NF.WEB-DL.DDP5.1.HEVC-Saon",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.web.dl.ddp5.1.hevc.saon",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "saon",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.NF.WEB-DL.HIN-ENG.DDP5.1.x264-ShiNobi",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.web.dl.hin.eng.ddp5.1.x264.shinobi",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "shinobi",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.NF.WEB-DL.DDP5.1.AV1-Saon",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.web.dl.ddp5.1.av1.saon",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "av1"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "saon",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.MULTi.VFi.1080p.HDLight.AC3.2.0.H265-TARDiS",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.multi.vfi.1080p.hdlight.ac3.2.0.h265.tardis",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "0",
+     "2"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tardis",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.2016.1080p.Netflix.WEB-DL.AVC.DDP.5.1-DBTV",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.2016.1080p.netflix.web.dl.avc.ddp.5.1.dbtv",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "dbtv",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.BluRay.DD5.1.x264-SA89",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.bluray.dd5.1.x264.sa89",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "sa89",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.amzn.web.dl.ddp5.1.h.264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.BluRay.x264-OFT",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.bluray.x264.oft",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "oft",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-NOGRP",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.bluray.remux.avc.dts.hd.ma.5.1.nogrp",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray",
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "nogrp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEBRip.10Bit.DDP2.0.HEVC-D3G",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.webrip.10bit.ddp2.0.hevc.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "0",
+     "2"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEBRip.10Bit.DDP2.0.HEVC-d3g",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.webrip.10bit.ddp2.0.hevc.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "0",
+     "2"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2015.S02E14.Candy.Morningstar.1080p.BDRip.x265.10bit.EAC3.5.1.DrainedDay-TAoE",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.eac3.5.1.drainedday.taoe",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "taoe",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2015.S02E14.Candy.Morningstar.1080p.BDRip.x265.10bit.DTS-HD.MA.5.1.DrainedDay-TAoE",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.dts.hd.ma.5.1.drainedday.taoe",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "taoe",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.1080p.NF.WEB-DL.DDP5.1.AV1-Vialle",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.nf.web.dl.ddp5.1.av1.vialle",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "av1"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "vialle",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer (2016) S02E14 (1080p NF WEB-DL DDP5.1 AV1) - Vialle",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.nf.web.dl.ddp5.1.av1.vialle",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "av1"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "vialle",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "[01/17] \"Lucifer-S02E14-Candy Morningstar-1080p-Netflix-WEBDL-H264-EAC3-GP-TV-NLSubs.par2\"",
+   "same_release": false,
+   "normalized": "\"lucifer.s02e14.candy.morningstar.1080p.netflix.webdl.h264.eac3.gp.tv.nlsubs.par2\"",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer-S02E14-Candy Morningstar-1080p-Netflix-WEBDL-H264-EAC3-GP-TV-NLSubs",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.netflix.webdl.h264.eac3.gp.tv.nlsubs",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "nlsubs",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "[01 17] 'Lucifer-S02E14-Candy Morningstar-1080p-Netflix-WEBDL-H264-EAC3-GP-TV-NLSubs.par2'",
+   "same_release": false,
+   "normalized": "'lucifer.s02e14.candy.morningstar.1080p.netflix.webdl.h264.eac3.gp.tv.nlsubs.par2'",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.AMZN.WEB-DL.DD5.1.H265-SiGMA",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.amzn.web.dl.dd5.1.h265.sigma",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "sigma",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.1080p.BluRay.x265.SDR.DDP.5.1.English-Yogi-HONE",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.bluray.x265.sdr.ddp.5.1.english.yogi.hone",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "lucifer",
+    "group": "hone",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.1080p.NF.WEB-DL.H264.SDR.DDP.5.1.English-HONE",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.nf.web.dl.h264.sdr.ddp.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "lucifer",
+    "group": "hone",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer (2016) S02E14 (1080p BluRay x265 SDR DDP 5.1 English - Yogi HONE)",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.bluray.x265.sdr.ddp.5.1.english.yogi.hone",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer (2016) S02E14 (1080p NF WEB-DL H264 SDR DDP 5.1 English - HONE)",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.nf.web.dl.h264.sdr.ddp.5.1.english.hone",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [
+     "sdr"
+    ],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.German.DL.EAC3.1080p.AMZN.WEB.H264-ZeroTwo",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.german.dl.eac3.1080p.amzn.web.h264.zerotwo",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "zerotwo",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 Candy Morningstar 1080p NF WEB-DL DDP5 1 H 264-NINJACENTRAL",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.web.dl.ddp5.1.h.264.ninjacentral",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ninjacentral",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.BluRay.1080p.Dts.H265-d3g",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.bluray.1080p.dts.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossy"
+    ],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.German.DL.1080p.WEB.h264.iNTERNAL-OHD",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.german.dl.1080p.web.h264.internal.ohd",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ohd",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.AC3D.1080p.BluRay.x265-w00t{{nvkKGohbMdqzYBixmfOVrI}}",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.ac3d.1080p.bluray.x265.w00t.}",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.WEB-DL.6CH.x265.HEVC-PSA",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.web.dl.6ch.x265.hevc.psa",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "psa",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.AC3D.1080p.BluRay.x265-w00t",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.ac3d.1080p.bluray.x265.w00t",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "w00t",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.REPACK.1080p.AMZN.WEBRip.DDP5.1.x264-NTb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.amzn.webrip.ddp5.1.x264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.POLISH.1080p.WEB.H264-FLAME",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.polish.1080p.web.h264.flame",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "flame",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.BluRay.x265-RARBG",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.bluray.x265.rarbg",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "rarbg",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.REPACK.1080p.WEBRip.10Bit.DDP5.1.H265-d3g",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.webrip.10bit.ddp5.1.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.REPACK.1080p.WEBRip.10Bit.DDP5.1.H265-D3G",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.webrip.10bit.ddp5.1.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "[02/19] \"Lucifer.S02E14.Candy Morningstar-1080P-NF-GP-TV-NLSubs.part01.rar\"",
+   "same_release": false,
+   "normalized": "\"lucifer.s02e14.candy.morningstar.1080p.nf.gp.tv.nlsubs.part01.rar\"",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "[02 19] 'Lucifer.S02E14.Candy Morningstar-1080P-NF-GP-TV-NLSubs.part01.rar'",
+   "same_release": false,
+   "normalized": "'lucifer.s02e14.candy.morningstar.1080p.nf.gp.tv.nlsubs.part01.rar'",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 Candy Morningstar-1080P-NF-GP-TV-NLSubs",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.gp.tv.nlsubs",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "nlsubs",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.1080p.BDRip.DDP5.1.10bit.x265-ToVaR",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.1080p.bdrip.ddp5.1.10bit.x265.tovar",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tovar",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.BluRay.10Bit.DTS-HD.MA.5.1.H265-D3G",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.bluray.10bit.dts.hd.ma.5.1.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.REPACK.1080p.BluRay.10Bit.DTS-HD.MA.5.1.H265-D3G",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.repack.1080p.bluray.10bit.dts.hd.ma.5.1.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 German AC3 DL 1080p WebRip x265-FuN",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.german.ac3.dl.1080p.webrip.x265.fun",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "fun",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2017.S02E14.1080p.10bit.Bluray.x265.Dual.Audio.Hindi+English.DDP.5.1.ESub.-=BlacK.PearL=-",
+   "same_release": false,
+   "normalized": "lucifer.2017.s02e14.1080p.10bit.bluray.x265.dual.audio.hindi.english.ddp.5.1.esub.=black.pearl=",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2017,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2017.S02E14.1080p.10bit.Bluray.x265.Dual.Audio.Hindi+English.DDP.5.1.ESub.-=BlacK PearL=",
+   "same_release": false,
+   "normalized": "lucifer.2017.s02e14.1080p.10bit.bluray.x265.dual.audio.hindi.english.ddp.5.1.esub.=black.pearl=",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2017,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2017.S02E14.1080p.10bit.Bluray.x265.Dual.Audio.Hindi+English.DDP.5.1.ESub.-=BlacK_PearL=-",
+   "same_release": false,
+   "normalized": "lucifer.2017.s02e14.1080p.10bit.bluray.x265.dual.audio.hindi.english.ddp.5.1.esub.=black.pearl=",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2017,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEB.H264.DDP5.1-DERMAGiC",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.h264.ddp5.1.dermagic",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "dermagic",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.[2017].S02E14.1080p.[60FPS].Bluray.x264.Dual.Audio.[Hi.Eng].DDP.5.1.Esub.[-BlacK PearL-]",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.bluray.x264.dual.audio.ddp.5.1.esub",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2016.S02E14.Candy.Morningstar.1080p.BluRay.x265.Ghost",
+   "same_release": false,
+   "normalized": "lucifer.2016.s02e14.candy.morningstar.1080p.bluray.x265.ghost",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2016,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer (2015) S02E14 Candy Morningstar (1080p BDRip x265 10bit DTS 5.1 - Species180) [TAoE]",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.dts.5.1.species180",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossy"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer (2015) S02E14 Candy Morningstar (1080p BDRip x265 10bit EAC3 5.1 - Species180) [TAoE]",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.eac3.5.1.species180",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2015.S02E14.Candy.Morningstar.1080p.BDRip.x265.10bit.DTS.5.1.Species180.TAoE",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.dts.5.1.species180.taoe",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossy"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.2015.S02E14.Candy.Morningstar.1080p.BDRip.x265.10bit.EAC3.5.1.Species180.TAoE",
+   "same_release": false,
+   "normalized": "lucifer.2015.s02e14.candy.morningstar.1080p.bdrip.x265.10bit.eac3.5.1.species180.taoe",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bdrip"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": 2015,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.BluRay.x265-YAWNiX",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.bluray.x265.yawnix",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "yawnix",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.10bit.BluRay.AAC5.1.HEVC-Vyndros",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.10bit.bluray.aac5.1.hevc.vyndros",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "aac"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "vyndros",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.BluRay.10Bit.Dts-HDMa5.1.H265-d3g",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.bluray.10bit.dts.hdma5.1.h265.d3g",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [
+     "10bit"
+    ],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "d3g",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.REPACK.1080p.Blu-ray.Remux.AVC.DTS-HD.MA.5.1-DTHD",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.blu.ray.remux.avc.dts.hd.ma.5.1.dthd",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray",
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "dthd",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEB-DL.DD5.1.H.264-DRACULA",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.dl.dd5.1.h.264.dracula",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "dracula",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.NF.WEB-DL.DDP5.1.x264-NINJACENTRAL",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.nf.web.dl.ddp5.1.x264.ninjacentral",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "netflix"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ninjacentral",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.MULTi.1080p.WEB.x264-LAZARUS",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.multi.1080p.web.x264.lazarus",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "lazarus",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.FRENCH.1080p.HDTV.x264-Ryotox",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.french.1080p.hdtv.x264.ryotox",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "hdtv"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ryotox",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.BluRay.X264.1-DEFLATE",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.bluray.x264.1.deflate",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "bluray"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "deflate",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.1080p.WebHD.x264-TVP",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.1080p.webhd.x264.tvp",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tvp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.1080p.WebHD.x264-TVP [7fab5fcc3]",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.1080p.webhd.x264.tvp",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tvp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.1080p.WebHD.x264-TVP [02ef8fbb8]",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.1080p.webhd.x264.tvp",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tvp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.GERMAN.1080p.WebHD.x264-TVP [0edba84e9]",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.candy.morningstar.german.1080p.webhd.x264.tvp",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "tvp",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 1080p WEB-DL DD5 1 H 264-DRACULA",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.dl.dd5.1.h.264.dracula",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "dracula",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEB-DL.DD5.1-NL.Subs-Het.Regenboog.team.OYM",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.dl.dd5.1.nl.subs.het.regenboog.team.oym",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 1080p WEB-DL DD5.1-NL Subs",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.dl.dd5.1.nl.subs",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.AMZN.WEBRip.DDP5.1.x264-NTb ac3.(NLsub)",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.amzn.webrip.ddp5.1.x264.ntb.ac3.nlsub",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "nlsub",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.WEBRip.X264-DEFLATE",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.webrip.x264.deflate",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "deflate",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer S02E14 1080p WEBRip X264-DEFLATE",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.webrip.x264.deflate",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [],
+    "channels": [],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "deflate",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "lucifer.s02e14.1080p.web.dl.dd5.1.hevc.x265.rmteam",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.web.dl.dd5.1.hevc.x265.rmteam",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "dl",
+     "web"
+    ],
+    "codec": [
+     "hevc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "lucifer.s02e14.repack.1080p.amzn.webrip.ddp5.1.x264-ntb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.amzn.webrip.ddp5.1.x264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "lucifer.s02e14.1080p.amzn.webrip.ddp5.1.x264-ntb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.amzn.webrip.ddp5.1.x264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.repack.1080p.amzn.webrip.ddp5.1.x264-ntb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.repack.1080p.amzn.webrip.ddp5.1.x264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": true,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.1080p.AMZN.WEBRip.DDP5.1.x264-NTb",
+   "same_release": false,
+   "normalized": "lucifer.s02e14.1080p.amzn.webrip.ddp5.1.x264.ntb",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "webrip"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "digital",
+     "dolby",
+     "plus"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [
+     "amazon"
+    ],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "ntb",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  },
+  {
+   "primary": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "candidate": "Lucifer.S02E14.Candy.Morningstar.1080p.DTS-HD.MA.5.1.AVC.REMUX-FraMeSToR",
+   "same_release": true,
+   "normalized": "lucifer.s02e14.candy.morningstar.1080p.dts.hd.ma.5.1.avc.remux.framestor",
+   "attrs": {
+    "resolution": [
+     "1080p"
+    ],
+    "quality": [
+     "remux"
+    ],
+    "codec": [
+     "avc"
+    ],
+    "bit_depth": [],
+    "audio": [
+     "dts",
+     "lossless"
+    ],
+    "channels": [
+     "1",
+     "5"
+    ],
+    "network": [],
+    "edition": [],
+    "hdr": [],
+    "title": "lucifer",
+    "group": "framestor",
+    "seasons": [
+     2
+    ],
+    "episodes": [
+     14
+    ],
+    "year": null,
+    "repack": false,
+    "proper": false
+   }
+  }
+ ]
+}
