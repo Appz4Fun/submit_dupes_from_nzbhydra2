@@ -40,6 +40,7 @@ STATE_TTL = 30 * 86400   # s: forget groups after this
 DEAD_TTL = 3 * 86400     # s: remember postings found dead (taken-down articles do not come back)
 FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
 SEARCH_PAGE, SEARCH_PAGES = 100, 5  # Hydra results per request, and pages read when a query fills them
+WATCH_STATUSES = ("QUEUED", "PAUSED", "DOWNLOADING", "FETCHING")  # not yet past download
 RELIST_WINDOW = 120.0     # s: listings of one size posted this close together are one posting on several indexers
 INDEXER_COOLDOWN = 1800.0  # s an indexer is not asked for NZBs after it refused one (403/429: its grab limit)
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
@@ -73,6 +74,11 @@ class Config:
     body_max_per_nzb: int = 20                # ... but at most this many per NZB (one server downloads each)
     health_budget: float = 120.0  # s per health pass (probe of all donors / full samples of the rest)
     fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
+    watch_nzbget: bool = False    # also watch nzbget's queue for picks added without the proxy (nzbdavkodi, uploads)
+    watch_interval: float = 15.0  # s between queue polls
+    watch_settle: float = 20.0    # s a pick waits in the queue first (its submitter's own backups arrive)
+    nzbget_username: str = ""     # nzbget login for the watcher (the Hydra path uses Hydra's own)
+    nzbget_password: str = ""
     deadline: float = 60.0  # seconds after the primary append
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
@@ -313,6 +319,9 @@ class State:
     def sent(self, key, fp):
         return self.data.get(key, {}).get("fps", {}).get(fp)
 
+    def sent_anywhere(self, fp):
+        return any(isinstance(g, dict) and fp in g.get("fps", {}) for k, g in self.data.items() if k != "_dead")
+
     def mark_dead(self, fp, sk):
         with self.lock:
             dead = self.data.setdefault("_dead", {"t": time.time(), "fps": {}})
@@ -421,6 +430,8 @@ class Proxy:
         self.cfg, self.state = cfg, State(cfg.state_dir)
         self.workers, self.server, self.workers_lock = [], None, threading.Lock()
         self.refused, self.indexer_locks = {}, {}  # indexer -> refused until; indexer -> one fetch at a time
+        self.ctx = threading.local()             # per discovery: .base, added to every DupeScore sent
+        self.watched, self.first_seen = set(), {}  # watcher: NZBIDs handled; NZBID -> first seen in the queue
 
     def _indexer_lock(self, indexer):
         with self.workers_lock:
@@ -581,14 +592,17 @@ class Proxy:
                 last = (r, reason, None, None)
         return (other or last) + (stats,)
 
-    def discover(self, key, title, info, category, path, auth, nzbid, t0):
+    def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+        """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
+        primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
+        self.ctx.base = base
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
         nzbget_config = self.rpc_call(path, auth, "config", []) or []
         servers = self.news_servers(nzbget_config, title) if cfg.health_percent else []
         # the primary's own probe starts now, beside the searches: a dead primary is demoted within seconds,
         # before nzbget downloads (or parks) it
         primary_check = threading.Thread(target=self.check_primary, daemon=True,
-                                         args=(servers, path, auth, nzbid, title, info))
+                                         args=(servers, path, auth, nzbid, title, info, base))
         primary_check.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -751,7 +765,7 @@ class Proxy:
                  h.error)
         return True
 
-    def check_primary(self, servers, path, auth, nzbid, title, info):
+    def check_primary(self, servers, path, auth, nzbid, title, info, base=0):
         """Probe the primary; one with nothing on any server is demoted to DupeScore 1, so nzbget swaps in
         the healthiest donor as soon as one arrives. Never a partly alive one: the swap deletes what it
         downloaded, which is exactly what nzbget's repair from duplicates needs."""
@@ -762,8 +776,8 @@ class Proxy:
         what = "%s: primary is dead (%d of %d probe articles on no server)" % (title, h.missing, h.answered)
         if self.cfg.dry_run:
             log.info("%s; DRY-RUN: not demoted", what)
-        elif self.rpc_call(path, auth, "editqueue", ["GroupSetDupeScore", "1", [nzbid]]):
-            log.info("%s: DupeScore 100 -> 1, the healthiest donor takes over", what)
+        elif self.rpc_call(path, auth, "editqueue", ["GroupSetDupeScore", str(base + 1), [nzbid]]):
+            log.info("%s: DupeScore -> %d, the healthiest donor takes over", what, base + 1)
         else:
             log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
                      what)
@@ -771,7 +785,8 @@ class Proxy:
     def set_score(self, path, auth, donor_id, score, param=None):
         """DupeScore (and a parameter) of a donor in history or, once nzbget moved it back, in the queue."""
         for kind in ("History", "Group"):  # donors normally sit in history as dupe backups
-            if self.rpc_call(path, auth, "editqueue", [kind + "SetDupeScore", str(score), [donor_id]]):
+            cmd = [kind + "SetDupeScore", str(score + self.base()), [donor_id]]
+            if self.rpc_call(path, auth, "editqueue", cmd):
                 if param:
                     self.rpc_call(path, auth, "editqueue", [kind + "SetParameter", param, [donor_id]])
                 return True
@@ -835,7 +850,8 @@ class Proxy:
                 return 0
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
             pp = [{"Name": "DupeAlive", "Value": str(round(100 * h.alive))}] if h and h.alive is not None else []
-            params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score, "SCORE", pp]
+            params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score + self.base(),
+                      "SCORE", pp]
             donor_id = self.rpc(path, auth, "append", params)
             if donor_id <= 0:
                 stats["append"] += 1
@@ -843,6 +859,80 @@ class Proxy:
             self.state.record(key, ci.fingerprint, donor_id)
         log.info("added donor nzbid=%d %s", donor_id, desc)
         return donor_id
+
+    def base(self):
+        return getattr(self.ctx, "base", 0)
+
+    def watch_auth(self):
+        if not self.cfg.nzbget_username:
+            return ""
+        login = "%s:%s" % (self.cfg.nzbget_username, self.cfg.nzbget_password)
+        return "Basic " + base64.b64encode(login.encode()).decode()
+
+    def watch_once(self):
+        """One look at nzbget's queue: each new pick (the top DupeScore of its DupeKey, not yet past download,
+        not appended by this proxy) gets a donor discovery, as if it had come through the proxy. Backups and
+        nzbget's failover promotions rank below their pick and are left alone."""
+        path, auth, now = "/jsonrpc", self.watch_auth(), time.time()
+        queue = self.rpc_call(path, auth, "listgroups", [0]) or []
+        history = None
+        for g in queue:
+            nzbid = _int(g.get("NZBID"))
+            if g.get("Status") not in WATCH_STATUSES or nzbid <= 0 or nzbid in self.watched:
+                continue
+            if now - self.first_seen.setdefault(nzbid, now) < self.cfg.watch_settle:
+                continue
+            self.watched.add(nzbid)
+            key, score, title = g.get("DupeKey") or "", _int(g.get("DupeScore")), g.get("NZBName") or ""
+            if key:
+                history = self.rpc_call(path, auth, "history", [True]) or [] if history is None else history
+                if any(x is not g and str(x.get("DupeKey", "")).lower() == key.lower() and
+                       _int(x.get("DupeScore")) > score for x in queue + history):
+                    continue  # a backup or promoted duplicate: its pick was (or is) handled
+            info = self.queued_nzb(path, auth, g)
+            if info is None or self.state.sent_anywhere(info.fingerprint):
+                continue  # unreadable, or the proxy appended it (primary or donor)
+            if not key or score < 100:  # managed here from now on: donors score 2-90 under a pick at 100
+                key = key or "dupes:" + normalize_title(title)
+                for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", "100"), ("GroupSetDupeMode", "SCORE")):
+                    self.rpc_call(path, auth, "editqueue", [cmd, arg, [nzbid]])
+                score = 100
+            with self.state.lock:
+                self.state.record(key, info.fingerprint, nzbid, title, touch=True)
+            log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors", nzbid, title, key, score)
+            t = threading.Thread(target=self._discover_safe, daemon=True, args=(
+                key, title, info, g.get("Category") or "", path, auth, nzbid, time.time(),
+                0 if score <= 100 else score - 1000))
+            with self.workers_lock:
+                self.workers = [w for w in self.workers if w.is_alive()] + [t]
+            t.start()
+
+    def queued_nzb(self, path, auth, g):
+        """The NzbInfo of a queue item from the copy nzbget keeps in NzbDir (name[.N].queued: the one whose
+        size matches), or None."""
+        opts = {e.get("Name"): str(e.get("Value", "")) for e in self.rpc_call(path, auth, "config", []) or []}
+        nzbdir = opts.get("NzbDir", "").replace("${MainDir}", opts.get("MainDir", ""))
+        size = (_int(g.get("FileSizeHi")) << 32) + _int(g.get("FileSizeLo"))
+        best = None
+        for f in glob.glob(glob.escape(os.path.join(nzbdir, g.get("NZBFilename") or "?")) + "*.queued"):
+            try:
+                with open(f, "rb") as fh:
+                    info = parse_nzb(fh.read())
+            except (OSError, ValueError):
+                continue
+            if best is None or abs(info.total_bytes - size) < abs(best.total_bytes - size):
+                best = info
+        if best is None:
+            log.info("watch: no readable NZB for nzbid=%s %s in %s", g.get("NZBID"), g.get("NZBName"), nzbdir)
+        return best
+
+    def watch_forever(self):
+        while True:
+            try:
+                self.watch_once()
+            except Exception:
+                log.exception("watch: queue poll failed")
+            time.sleep(self.cfg.watch_interval)
 
     def rpc_call(self, path, auth, method, params):
         """JSON-RPC call to nzbget with Hydra's own path + credentials; raw result or None."""
@@ -862,6 +952,8 @@ class Proxy:
         self.server = ThreadingHTTPServer((host, self.cfg.listen_port), handler)  # daemon_threads by default
         self.url = "http://%s:%d" % (host, self.server.server_address[1])
         threading.Thread(target=self.server.serve_forever, args=(0.1,), daemon=True).start()
+        if self.cfg.watch_nzbget and self.cfg.enabled:
+            threading.Thread(target=self.watch_forever, daemon=True).start()
         return self.server.server_address[1]
 
     def stop(self):
@@ -878,9 +970,9 @@ def main():
     cfg = Config.from_env(os.environ)
     cfg.dry_run = cfg.dry_run or "--dry-run" in sys.argv
     port = Proxy(cfg).start()
-    log.info("listening on :%d -> %s (enabled=%s dry_run=%s hydra=%s max_donors=%s)", port,
+    log.info("listening on :%d -> %s (enabled=%s dry_run=%s hydra=%s max_donors=%s watch_nzbget=%s)", port,
              mask(cfg.nzbget_url), cfg.enabled, cfg.dry_run, mask(cfg.hydra_url), cfg.max_donors if cfg.max_donors > 0
-             else "unlimited")
+             else "unlimited", cfg.watch_nzbget)
     threading.Event().wait()
 
 
