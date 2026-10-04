@@ -94,3 +94,18 @@ def test_items_past_download_are_left_alone(make_proxy, nzbget, hydra, tmp_path)
     p.watch_once()
     p.wait_idle(20)
     assert nzbget.appends == [] and hydra.queries == []
+
+
+def test_pick_whose_nzb_file_is_ambiguous_is_never_demoted(make_proxy, nzbget, hydra, tmp_path):
+    # live (Industry S04E02): two postings of exactly the same size share one NZBFilename in NzbDir, so the
+    # pick's own NZB can't be told apart by size; the dead one's probe must not demote an alive pick
+    alive, dead = release(TITLE, prefix="p"), release(TITLE, prefix="q")
+    nzbget.config_entries = FakeNntp(article_ids(alive)).config(1)
+    _pick(nzbget, tmp_path, alive)
+    (tmp_path / "nzbs" / (TITLE + ".nzb.2.queued")).write_bytes(dead)     # the twin, same size
+    (tmp_path / "nzbs" / (TITLE + ".nzb.queued")).write_bytes(dead)       # sorted first: the one size picks
+    (tmp_path / "nzbs" / (TITLE + ".nzb.3.queued")).write_bytes(alive)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    assert not [e for e in nzbget.edits if e[0] == "GroupSetDupeScore" and e[2] == [500]]

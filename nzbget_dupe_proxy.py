@@ -897,7 +897,7 @@ class Proxy:
                 if any(x is not g and str(x.get("DupeKey", "")).lower() == key.lower() and
                        _int(x.get("DupeScore")) > score for x in queue + history):
                     continue  # a backup or promoted duplicate: its pick was (or is) handled
-            info = self.queued_nzb(path, auth, g)
+            info, ambiguous = self.queued_nzb(path, auth, g)
             if info is None or self.state.sent_anywhere(info.fingerprint):
                 continue  # unreadable, or the proxy appended it (primary or donor)
             if not key or score < self.cfg.primary_score:  # managed here from now on: lift it to primary_score
@@ -907,32 +907,36 @@ class Proxy:
                 score = self.cfg.primary_score
             with self.state.lock:
                 self.state.record(key, info.fingerprint, nzbid, title, touch=True)
-            log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors", nzbid, title, key, score)
+            log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors%s", nzbid, title, key, score,
+                     "; its NZB is one of several postings of the same size, so it is never demoted" if ambiguous
+                     else "")
             t = threading.Thread(target=self._discover_safe, daemon=True, args=(
-                key, title, info, g.get("Category") or "", path, auth, nzbid, time.time(),
+                key, title, info, g.get("Category") or "", path, auth, -nzbid if ambiguous else nzbid, time.time(),
                 score_base(score)))
             with self.workers_lock:
                 self.workers = [w for w in self.workers if w.is_alive()] + [t]
             t.start()
 
     def queued_nzb(self, path, auth, g):
-        """The NzbInfo of a queue item from the copy nzbget keeps in NzbDir (name[.N].queued: the one whose
-        size matches), or None."""
+        """(NzbInfo, ambiguous) of a queue item from the copy nzbget keeps in NzbDir (name[.N].queued: the one
+        whose size matches), or (None, False). Ambiguous: another posting of exactly that size shares the name
+        (byte-identical reposts), so which one is the item's own can't be told."""
         opts = {e.get("Name"): str(e.get("Value", "")) for e in self.rpc_call(path, auth, "config", []) or []}
         nzbdir = opts.get("NzbDir", "").replace("${MainDir}", opts.get("MainDir", ""))
         size = (_int(g.get("FileSizeHi")) << 32) + _int(g.get("FileSizeLo"))
-        best = None
-        for f in glob.glob(glob.escape(os.path.join(nzbdir, g.get("NZBFilename") or "?")) + "*.queued"):
+        infos = []
+        for f in sorted(glob.glob(glob.escape(os.path.join(nzbdir, g.get("NZBFilename") or "?")) + "*.queued")):
             try:
                 with open(f, "rb") as fh:
-                    info = parse_nzb(fh.read())
+                    infos.append(parse_nzb(fh.read()))
             except (OSError, ValueError):
                 continue
-            if best is None or abs(info.total_bytes - size) < abs(best.total_bytes - size):
-                best = info
-        if best is None:
+        if not infos:
             log.info("watch: no readable NZB for nzbid=%s %s in %s", g.get("NZBID"), g.get("NZBName"), nzbdir)
-        return best
+            return None, False
+        best = min(infos, key=lambda i: abs(i.total_bytes - size))
+        rivals = {i.fingerprint for i in infos if i.total_bytes == best.total_bytes}
+        return best, len(rivals) > 1
 
     def watch_forever(self):
         while True:
