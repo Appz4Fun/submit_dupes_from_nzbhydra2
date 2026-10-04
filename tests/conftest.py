@@ -35,7 +35,8 @@ def make_proxy(nzbget, hydra, tmp_path):
 
     def make(**overrides):
         env = {"LISTEN_PORT": "0", "NZBGET_URL": nzbget.url, "HYDRA_URL": hydra.url,
-               "HYDRA_APIKEY": "KEY", "STATE_DIR": str(tmp_path / "state")}
+               "HYDRA_APIKEY": "KEY", "STATE_DIR": str(tmp_path / "state"),
+               "PRIMARY_SCORE": "100"}  # tests read scores relative to a primary at 100 (base 0)
         env.update({k.upper(): str(v) for k, v in overrides.items()})
         p = ndp.Proxy(ndp.Config.from_env(env))
         p.start(host="127.0.0.1")

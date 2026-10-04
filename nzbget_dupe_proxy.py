@@ -74,6 +74,8 @@ class Config:
     body_max_per_nzb: int = 20                # ... but at most this many per NZB (one server downloads each)
     health_budget: float = 120.0  # s per health pass (probe of all donors / full samples of the rest)
     fast_donors: int = 5          # donors appended right after the quick probe; the rest after a full sample
+    primary_score: int = 1000000  # DupeScore of a primary the proxy manages; donors sit just under it (nzbget's
+    #   failover takes a backup only if backup score >= primary score * health / 1000)
     watch_nzbget: bool = False    # also watch nzbget's queue for picks added without the proxy (nzbdavkodi, uploads)
     watch_interval: float = 15.0  # s between queue polls
     watch_settle: float = 20.0    # s a pick waits in the queue first (its submitter's own backups arrive)
@@ -352,6 +354,11 @@ def _int(v):
         return 0
 
 
+def score_base(primary):
+    """Offset of every DupeScore sent under a primary scored `primary`: donors base+2..base+90, dead base+1."""
+    return max(0, primary - 1000)
+
+
 def target_score(alive, twin=False):
     """DupeScore for a donor: the most whole first. nzbget tries dupes by highest DupeScore, so 9 + 80 * alive
     share (unknown = 1.0): 100% alive = 89, 50% = 49; a byte-identical twin of the primary (same files and bytes:
@@ -474,7 +481,7 @@ class Proxy:
                 log.info("append key=%s nzbid=%s title=%s: posting already sent, not re-adding", key, old, title)
                 reply = {"version": "1.1", "id": req.get("id"), "result": old}
                 return 200, json.dumps(reply).encode(), "application/json"
-            params[6:9] = [key, 100, "SCORE"]
+            params[6:9] = [key, self.cfg.primary_score, "SCORE"]
             status, rbody, ctype = self.forward(path, json.dumps(req).encode(), headers)
             nzbid = rpc_result(status, rbody)
             if info and nzbid > 0:
@@ -484,7 +491,8 @@ class Proxy:
             log.info("append key=%s nzbid=%s title=%s: %s", key, nzbid, title, why)
         else:
             t = threading.Thread(target=self._discover_safe, daemon=True,
-                                 args=(key, title, info, params[2], path, headers.get("Authorization"), nzbid, t0))
+                                 args=(key, title, info, params[2], path, headers.get("Authorization"), nzbid, t0,
+                                       score_base(self.cfg.primary_score)))
             with self.workers_lock:
                 self.workers = [w for w in self.workers if w.is_alive()] + [t]
             t.start()
@@ -840,7 +848,7 @@ class Proxy:
         r, data, ci = v
         h = health.get(ci.fingerprint)
         desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s] (%s)" % (
-            score, r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
+            score + self.base(), r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
         if self.cfg.dry_run:
             log.info("DRY-RUN would add donor %s", desc)
             return -1
@@ -892,17 +900,17 @@ class Proxy:
             info = self.queued_nzb(path, auth, g)
             if info is None or self.state.sent_anywhere(info.fingerprint):
                 continue  # unreadable, or the proxy appended it (primary or donor)
-            if not key or score < 100:  # managed here from now on: donors score 2-90 under a pick at 100
+            if not key or score < self.cfg.primary_score:  # managed here from now on: lift it to primary_score
                 key = key or "dupes:" + normalize_title(title)
-                for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", "100"), ("GroupSetDupeMode", "SCORE")):
+                for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", str(self.cfg.primary_score)), ("GroupSetDupeMode", "SCORE")):
                     self.rpc_call(path, auth, "editqueue", [cmd, arg, [nzbid]])
-                score = 100
+                score = self.cfg.primary_score
             with self.state.lock:
                 self.state.record(key, info.fingerprint, nzbid, title, touch=True)
             log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors", nzbid, title, key, score)
             t = threading.Thread(target=self._discover_safe, daemon=True, args=(
                 key, title, info, g.get("Category") or "", path, auth, nzbid, time.time(),
-                0 if score <= 100 else score - 1000))
+                score_base(score)))
             with self.workers_lock:
                 self.workers = [w for w in self.workers if w.is_alive()] + [t]
             t.start()

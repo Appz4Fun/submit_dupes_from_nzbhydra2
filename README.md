@@ -142,6 +142,25 @@ The sequence has five parts:
 A problem in the background steps never reaches Hydra. If Hydra is down, an indexer refuses a download, or
 a news server fails, the primary is already in nzbget and Hydra has already reported success.
 
+## Watching nzbget for other submitters
+
+Some clients send NZBs straight to nzbget, for example nzbdavkodi. With `WATCH_NZBGET=1`, the proxy also
+polls nzbget's queue every `WATCH_INTERVAL` seconds (15). It handles a queue item as a new pick when the
+item meets all of these conditions:
+
+- The item is not yet past download: its status is `QUEUED`, `PAUSED`, `DOWNLOADING`, or `FETCHING`.
+- The item has been in the queue for `WATCH_SETTLE` seconds (20), so its submitter's own backups arrive
+  first.
+- The item has the top `DupeScore` of its `DupeKey`. Backups and nzbget's failover promotions rank lower.
+- The proxy didn't append the item itself.
+
+The proxy reads the pick's NZB from nzbget's `NzbDir` and runs the same discovery as for a Hydra grab,
+under the pick's own `DupeKey`. A pick without a `DupeKey` gets one. A pick scored below `PRIMARY_SCORE`
+is raised to it. The watcher signs in with `NZBGET_USERNAME` and `NZBGET_PASSWORD`.
+
+In live use, two nzbdavkodi picks of Industry S03 were completely dead. The proxy demoted them within
+20 seconds, and nzbget downloaded a live donor or backup instead.
+
 ## Finding other postings
 
 The proxy runs several Hydra searches at the same time, because indexers name the same release in
@@ -362,9 +381,15 @@ flowchart LR
 
 | Donor | `DupeScore` | Why |
 |---|---|---|
-| Primary | `100` | The release you chose. |
-| Primary with nothing left on any server | `1` | Demoted, so the first healthy donor replaces it in the queue. |
-| Donor | `9 + 80 × alive` | The more of a posting exists, the earlier nzbget tries it. |
+| Primary | `PRIMARY_SCORE` (1,000,000), or a higher score its submitter set | The release you chose. |
+| Primary with nothing left on any server | base + 1 | Demoted, so the first healthy donor replaces it in the queue. |
+| Donor | base + 9 + 80 × alive | The more of a posting exists, the earlier nzbget tries it. |
+
+The base is the primary's score minus 1,000. nzbget fails over to a backup only if the backup's score is
+at least the primary's score × health / 1000. With the primary at 1,000,000, donors pass that check at any
+health below 99.9%. Donors also stay below the backups that the submitter scored just under its pick.
+
+The table below and the diagram give scores relative to the base.
 | Byte-identical twin of the primary | One more than an equally whole donor | Article borrowing and whole-file recreation work best with an exact twin, so a twin wins a tie. |
 | Donor found dead after its full sample | `1` | Kept in nzbget's history, tried last. |
 
@@ -523,6 +548,11 @@ The proxy uses the credentials that Hydra sends for its own calls to nzbget, so 
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `PRIMARY_SCORE` | `1000000` | `DupeScore` of a primary that the proxy manages. |
+| `WATCH_NZBGET` | `0` | `1` also watches nzbget's queue for picks that other clients submit. |
+| `WATCH_INTERVAL` | `15` | Seconds between queue polls. |
+| `WATCH_SETTLE` | `20` | Seconds a new pick waits before discovery. |
+| `NZBGET_USERNAME`, `NZBGET_PASSWORD` | empty | nzbget login for the watcher. |
 | `HEALTH_PERCENT` | `5` | Share of each NZB's articles to check. `0` turns health checks off. |
 | `HEALTH_MIN_ARTICLES` | `50` | Fewest articles to check per NZB. |
 | `HEALTH_MAX_ARTICLES` | `1000` | Most articles to check per NZB. |
@@ -660,7 +690,7 @@ account's connection limit.
 
 ## Develop and test
 
-The repository includes 122 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
+The repository includes 129 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
 NZB downloads), and NNTP news servers (`STAT`, `BODY`, authentication, delays, and connection counting).
 
 ```bash

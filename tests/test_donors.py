@@ -447,3 +447,14 @@ def test_listings_without_size_are_not_grouped():
     import nzbget_dupe_proxy as ndp
     rs = [ndp.Result("t", "l%d" % i, 0, 0, 1000.0 + i, "idx") for i in range(3)]
     assert len(ndp.group_listings(rs)) == 3
+
+
+def test_donors_pass_nzbgets_failover_threshold_under_the_default_primary_score(make_proxy, nzbget, hydra):
+    # nzbget fails over to a backup only if backup >= primary * health / 1000: with a primary at 100 no
+    # donor (<= 90) qualifies above 90% health, so the default lifts the primary to 1,000,000
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    p = make_proxy(primary_score=1000000)
+    append(p, primary())
+    prim, donor = nzbget.appends[0]["params"][7], nzbget.appends[1]["params"][7]
+    assert prim == 1000000 and prim - 1000 < donor < prim
+    assert donor >= prim * 999 // 1000
