@@ -25,8 +25,8 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B17 | High | DupeSearch flow | A DupeKey change during a search orphans the donors, which then download beside the pick (`DupeSearch.cpp:310/860`). | 2026-10-05 | Fixed | `8a385f0d` |
 | B18 | High | DupeSearch dry run | A dry run writes the searched state, so the real search is blocked for 6 hours (`DupeSearch.cpp:264`). | 2026-10-05 | Fixed | `13a95b4e` |
 | B19 | Medium | DupeSearch dry run | A dry run writes dead records to disk, which later real searches trust (`DupeSearch.cpp:536/573/676/695/758`). | 2026-10-05 | Fixed | `13a95b4e` |
-| B20 | Medium | DupeSearch ranking | Every history dupe under a broad key is rescored and tagged `DupeAlive`, even other releases (`DupeSearch.cpp:343/727`). | 2026-10-05 | Open | |
-| B21 | Medium | DupeSearch resume | Donors deleted from history (kept as `hkDup`) are re-added on resume, and their rescore counts as a success (`DupeSearch.cpp:337/872`). | 2026-10-05 | Open | |
+| B20 | Medium | DupeSearch ranking | Every history dupe under a broad key is rescored and tagged `DupeAlive`, even other releases (`DupeSearch.cpp:343/727`). | 2026-10-05 | Fixed | `c8e01c45` |
+| B21 | Medium | DupeSearch resume | Donors deleted from history (kept as `hkDup`) are re-added on resume, and their rescore counts as a success (`DupeSearch.cpp:337/872`). | 2026-10-05 | Fixed | `c8e01c45` |
 | B22 | High | History retry | `HistoryRetry` clears every stream-repair job, so "Download remaining" or "Post-process again" loses the saved holes of finished files (`HistoryCoordinator.cpp:697`). | 2026-10-05 | Fixed | `43a9583b` |
 | B23 | Medium | Article fallback | A borrowed donor message ID replaces the article's own ID in the saved file state, so a retry never tries the original ID (`DupeArticleFallback.cpp:191`, `QueueCoordinator.cpp:1956`). | 2026-10-05 | Open | |
 | B24 | Medium | DiskState | Queue format 66 and file format 9 are always written, so downgrading to upstream nzbget refuses the files and then loses the queue and history (`DiskState.cpp:31`). | 2026-10-05 | Open | |
