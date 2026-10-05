@@ -6,7 +6,7 @@ fixing commit.
 
 | ID | Severity | Area | Summary | Reported | Status | Fix commit |
 |---|---|---|---|---|---|---|
-| B1 | High | DupeSearch health | Message IDs are sent in `STAT` and `BODY` without angle brackets (`NzbReader.cpp:108`, `NntpHealthServer.cpp:135`). Confirmed live in a sandbox: 7 of 7 postings were called dead, including two that are 100% alive. | 2026-10-05 | Open | |
+| B1 | High | DupeSearch health | Message IDs are sent in `STAT` and `BODY` without angle brackets (`NzbReader.cpp:108`, `NntpHealthServer.cpp:135`). Confirmed live in a sandbox: 7 of 7 postings were called dead, including two that are 100% alive. | 2026-10-05 | Fixed | `35d70589` |
 | B2 | High (grouped servers) | ArticleFetcher | The eligible-server count ignores server groups, so each missing article waits out `ArticleTimeout` (`ArticleFetcher.cpp:91`). | 2026-10-05 | Open | |
 | B3 | Medium | Article fallback | Expected segment offsets assume list neighbours are neighbouring parts, so borrowing fails next to a gap in the NZB (`DupeArticleFallback.cpp:790`). | 2026-10-05 | Open | |
 | B4 | Medium | Dead-pick probe | A probe can start after `StopAll` and use the server pool after it is freed (`QueueCoordinator.cpp:217/246`). Also: `Run()` never checks `IsStopped()` before `Abandon()`, and `Measure` leaves `Finished=true` when stopped. | 2026-10-05 | Open | |
