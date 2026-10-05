@@ -9,7 +9,7 @@ fixing commit.
 | B1 | High | DupeSearch health | Message IDs are sent in `STAT` and `BODY` without angle brackets (`NzbReader.cpp:108`, `NntpHealthServer.cpp:135`). Confirmed live in a sandbox: 7 of 7 postings were called dead, including two that are 100% alive. | 2026-10-05 | Open | |
 | B2 | High (grouped servers) | ArticleFetcher | The eligible-server count ignores server groups, so each missing article waits out `ArticleTimeout` (`ArticleFetcher.cpp:91`). | 2026-10-05 | Open | |
 | B3 | Medium | Article fallback | Expected segment offsets assume list neighbours are neighbouring parts, so borrowing fails next to a gap in the NZB (`DupeArticleFallback.cpp:790`). | 2026-10-05 | Open | |
-| B4 | Medium | Dead-pick probe | A probe can start after `StopAll` and use the server pool after it is freed (`QueueCoordinator.cpp:217/246`). | 2026-10-05 | Open | |
+| B4 | Medium | Dead-pick probe | A probe can start after `StopAll` and use the server pool after it is freed (`QueueCoordinator.cpp:217/246`). Also: `Run()` never checks `IsStopped()` before `Abandon()`, and `Measure` leaves `Finished=true` when stopped. | 2026-10-05 | Open | |
 | B5 | Medium | DupeSearch health | Detached `Walk` threads outlive the check and can touch the freed server pool (`DonorHealth.cpp:342`). | 2026-10-05 | Open | |
 | B6 | Low | Article downloader | Content rejected from one server ends the article without trying the other servers (`ArticleDownloader.cpp:180`). | 2026-10-05 | Open | |
 | B7 | Low | Article fallback | The tiling check can demote the correct article after a short one (`DupeArticleFallback.cpp:864`). | 2026-10-05 | Open | |
@@ -27,3 +27,10 @@ fixing commit.
 | B19 | Medium | DupeSearch dry run | A dry run writes dead records to disk, which later real searches trust (`DupeSearch.cpp:536/573/676/695/758`). | 2026-10-05 | Open | |
 | B20 | Medium | DupeSearch ranking | Every history dupe under a broad key is rescored and tagged `DupeAlive`, even other releases (`DupeSearch.cpp:343/727`). | 2026-10-05 | Open | |
 | B21 | Medium | DupeSearch resume | Donors deleted from history (kept as `hkDup`) are re-added on resume, and their rescore counts as a success (`DupeSearch.cpp:337/872`). | 2026-10-05 | Open | |
+| B22 | High | History retry | `HistoryRetry` clears every stream-repair job, so "Download remaining" or "Post-process again" loses the saved holes of finished files (`HistoryCoordinator.cpp:697`). | 2026-10-05 | Open | |
+| B23 | Medium | Article fallback | A borrowed donor message ID replaces the article's own ID in the saved file state, so a retry never tries the original ID (`DupeArticleFallback.cpp:191`, `QueueCoordinator.cpp:1956`). | 2026-10-05 | Open | |
+| B24 | Medium | DiskState | Queue format 66 and file format 9 are always written, so downgrading to upstream nzbget refuses the files and then loses the queue and history (`DiskState.cpp:31`). | 2026-10-05 | Open | |
+| B25 | Medium | HealthCheck=dupe | Failover never triggers when the fallback can't apply (RawArticle, par2-only failures, DupeMode force), because the attempt count stays at 0 (`QueueCoordinator.cpp:1474`). | 2026-10-05 | Open | |
+| B26 | Low | History return | `MoveToQueue` doesn't reset `DupeAttemptedArticles` or `DupeUnsourcedArticles`, so the failover gate uses the previous attempt's ratio (`HistoryCoordinator.cpp:428`). | 2026-10-05 | Open | |
+| B27 | Low | Failover | A backup with a negative score never qualifies when the required score is 0, against the docs (`DupeCoordinator.cpp:432`). | 2026-10-05 | Open | |
+| B28 | Low (future) | DiskState | Format 65 is reused for a pre-release layout, so a future upstream format 65 would be misread (`DiskState.cpp:708`). | 2026-10-05 | Open | |
