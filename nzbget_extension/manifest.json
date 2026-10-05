@@ -1,7 +1,7 @@
 {
   "main": "main.py",
   "name": "DupeDonors",
-  "homepage": "https://github.com/Appz4Fun/submit_dupes_from_nzbhydra2",
+  "homepage": "https://github.com/xbmc4lyfe/nzbget-extension-dupe-donors",
   "kind": "QUEUE",
   "displayName": "Dupe Donors",
   "version": "1.0",

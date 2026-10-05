@@ -5,9 +5,8 @@ release, checks how much of each one still exists on your news servers, and adds
 duplicate backups, most complete first. When the download fails, nzbget switches to the best backup. With
 the PR 850 build of nzbget, nzbget also borrows missing articles from the backups.
 
-The extension does the same work as the `nzbget-dupe-proxy` service in this repository, but runs inside
-nzbget's own extension system. It needs no separate service, no proxy port, and no change to your
-downloaders. It handles every NZB that reaches nzbget, from NZBHydra2, nzbdavkodi, an RSS feed, or a
+The extension runs inside nzbget's own extension system. It needs no separate service, no proxy
+port, and no change to your downloaders. It handles every NZB that reaches nzbget, from NZBHydra2, nzbdavkodi, an RSS feed, or a
 manual upload.
 
 ## Contents
@@ -107,10 +106,6 @@ of each news server's connections, even when several downloads arrive together.
 5. Click **Test connection** on the Dupe Donors settings page. It checks that the indexer answers and lists
    the news servers used for health checks.
 
-Don't run the extension and the `nzbget-dupe-proxy` watcher (`WATCH_NZBGET=1`) at the same time: each would
-search and check every download. Turn the watcher off first. The proxy's Hydra path (port 6790) can stay,
-but it isn't needed: point Hydra at nzbget directly.
-
 To try it without changing anything in nzbget, set `DryRun` to `yes`. The extension then searches and
 checks, and only logs what it would add.
 
@@ -187,17 +182,16 @@ never demoted.
 
 ## Develop
 
-The extension's `nzbget_dupe_proxy.py`, `donor_health.py`, and `vendor/` are copies of the service code at
-the repository root. Change the root files, then copy them into this folder:
+`main.py` is the extension entry point. The donor discovery itself is in `nzbget_dupe_proxy.py` (search,
+release matching, NZB downloads, filters, scoring) and `donor_health.py` (the parallel news-server health
+check). Both use only the Python standard library and the bundled `vendor/` folder:
+
+- `vendor/ptt/` is [PTT](https://github.com/dreulavelle/PTT), MIT licensed, the release-name parser.
+- `vendor/cyclops/` is the async NNTP `STAT`/`BODY` client used for health checks.
+
+To try a change without nzbget, run the connection test from a shell:
 
 ```bash
-sh tools/sync_extension.sh
+NZBCP_COMMAND=ConnectionTest NZBPO_HydraUrl=http://127.0.0.1:5076 NZBPO_HydraApiKey=YOUR_KEY \
+NZBOP_CONTROLPORT=6789 NZBOP_CONTROLUSERNAME=nzbget NZBOP_CONTROLPASSWORD=YOUR_PASSWORD python3 main.py
 ```
-
-The test suite fails when the copies differ. Run it from the repository root:
-
-```bash
-.venv/bin/pytest -q
-```
-
-`tests/test_extension.py` covers the event handling, the worker, the connection test, and the copies.
