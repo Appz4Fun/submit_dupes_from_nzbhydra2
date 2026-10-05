@@ -178,3 +178,17 @@ def test_a_forced_pick_is_switched_to_score_mode(make_proxy, nzbget, hydra, tmp_
     p.watch_once()
     p.wait_idle(20)
     assert ("GroupSetDupeMode", "SCORE", [500]) in nzbget.edits
+
+
+def test_a_dead_backup_is_never_raised(make_proxy, nzbget, hydra, tmp_path):
+    # live (Shrinking S02E07 4150): nzbdavkodi's backups sat ~2,500 below the pick; "dead = base+1" lifted
+    # them by ~1,500, above where they were
+    pick, dead = release(TITLE, prefix="p"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, dead, 501, PICK - 2500, TITLE + ".d")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert nzbget.final_scores().get(501, PICK - 2500) == PICK - 2500
+    assert ("HistorySetParameter", "DupeAlive=0", [501]) in nzbget.edits

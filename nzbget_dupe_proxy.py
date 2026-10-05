@@ -834,7 +834,10 @@ class Proxy:
                 continue
             dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
             score = 1 if dead else ranks.take(h.alive)
-            if not self.set_score(path, auth, bid, score, "DupeAlive=%d" % round(100 * h.alive)):
+            if dead and _int(x.get("DupeScore")) <= score + base:  # already below base+1: never raise a dead one
+                self.rpc_call(path, auth, "editqueue", ["HistorySetParameter", "DupeAlive=0", [bid]])
+                score = _int(x.get("DupeScore")) - base
+            elif not self.set_score(path, auth, bid, score, "DupeAlive=%d" % round(100 * h.alive)):
                 stats["rescore"] += 1
                 continue
             stats["backup-ranked"] += 1
