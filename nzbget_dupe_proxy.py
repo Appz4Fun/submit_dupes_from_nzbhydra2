@@ -373,17 +373,19 @@ class Ranks:
     """Unique donor DupeScores (target_score; equal values count down: 90, 89, ...)."""
 
     def __init__(self):
-        self.used = set()
+        self.used, self.lock = set(), threading.Lock()  # shared by donors and the submitter's own backups
 
     def take(self, alive, twin=False):
-        score = target_score(alive, twin)
-        while score in self.used:
-            score -= 1
-        self.used.add(score)
-        return score
+        with self.lock:
+            score = target_score(alive, twin)
+            while score in self.used and score > 2:
+                score -= 1
+            self.used.add(score)
+            return score
 
     def release(self, score):
-        self.used.discard(score)
+        with self.lock:
+            self.used.discard(score)
 
 
 @dataclass
@@ -619,6 +621,11 @@ class Proxy:
         primary_check = threading.Thread(target=self.check_primary, daemon=True,
                                          args=(servers, path, auth, nzbid, title, info, base))
         primary_check.start()
+        ranks = Ranks()
+        # the submitter's own backups (already in nzbget's history) get the same health ranking as donors
+        backups = threading.Thread(target=self.rank_backups, daemon=True,
+                                   args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base))
+        backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
@@ -676,7 +683,7 @@ class Proxy:
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
-        ranks, added, placed = Ranks(), 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
+        added, placed = 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
         for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v), twin(v[2]))
             donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
@@ -712,6 +719,7 @@ class Proxy:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
         self.rerank(path, auth, placed.values(), dist, stats)
         primary_check.join()
+        backups.join()
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -796,6 +804,69 @@ class Proxy:
         else:
             log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
                      what)
+
+    def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0):
+        """Health-check the backups nzbget already holds under `key` (the submitter's own, parked in history
+        as DUPE or COPY) and set their DupeScore like a donor's: most whole first, dead ones at base+1, so
+        nzbget's failover goes straight to the wholest instead of trying them in the submitter's order."""
+        self.ctx.base = base
+        ranked = {}  # nzbid -> (score, alive) of each backup checked
+        if not servers or not key:
+            return ranked
+        items = [x for x in self.rpc_call(path, auth, "history", [True]) or []
+                 if str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("NZBID")) != pick_id
+                 and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
+        groups, seen = {}, set()
+        for x in items:
+            info, _ = self.queued_nzb(path, auth, x)
+            if info is None or info.fingerprint in seen:
+                continue
+            seen.add(info.fingerprint)
+            groups[_int(x["NZBID"])] = (x, info)
+        if not groups:
+            return ranked
+        log.info("health %s: checking %d backup(s) already in nzbget", title, len(groups))
+        checked = self.health_iter(servers, title, {i: info.message_ids for i, (_, info) in groups.items()},
+                                   full=True)
+        for bid, h in checked:
+            x, info = groups[bid]
+            if h is None or h.alive is None:
+                continue
+            dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
+            score = 1 if dead else ranks.take(h.alive)
+            if not self.set_score(path, auth, bid, score, "DupeAlive=%d" % round(100 * h.alive)):
+                stats["rescore"] += 1
+                continue
+            stats["backup-ranked"] += 1
+            ranked[bid] = (score, h.alive, dead)
+            if dead:
+                self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
+            log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s%s", bid, x.get("NZBName") or x.get("Name"),
+                     _int(x.get("DupeScore")), score + base, pct(h.alive), ", dead" if dead else "")
+        return ranked
+
+    def rescue(self, path, auth, failed):
+        """A pick that failed its health check (history item `failed`) while nothing of its DupeKey is left
+        in the queue (DupeMode FORCE, or backups nzbget filed as copies): rank its backups by health and send
+        the wholest alive one back to the queue. Never fail outright while a viable backup remains."""
+        key, title = failed.get("DupeKey") or "", failed.get("NZBName") or failed.get("Name") or ""
+        queue = self.rpc_call(path, auth, "listgroups", [0]) or []
+        if not key or any(str(x.get("DupeKey", "")).lower() == key.lower() for x in queue):
+            return 0  # nzbget's own failover already returned one
+        servers = self.news_servers(self.rpc_call(path, auth, "config", []) or [], title)
+        ranked = self.rank_backups(servers, path, auth, key, title, _int(failed.get("NZBID")), Ranks(), Counter(),
+                                   score_base(_int(failed.get("DupeScore"))))
+        alive = [(alive, score, bid) for bid, (score, alive, dead) in ranked.items() if not dead]
+        if not alive:
+            log.info("rescue %s: pick failed and no backup of key=%s is alive", title, key)
+            return 0
+        _, _, best = max(alive)
+        if not self.rpc_call(path, auth, "editqueue", ["HistoryRedownload", "", [best]]):
+            log.warning("rescue %s: could not return backup nzbid=%d to the queue", title, best)
+            return 0
+        log.info("rescue %s: pick nzbid=%s failed with nothing queued: returned backup nzbid=%d (alive=%s)",
+                 title, failed.get("NZBID"), best, pct(ranked[best][1]))
+        return best
 
     def set_score(self, path, auth, donor_id, score, param=None):
         """DupeScore (and a parameter) of a donor in history or, once nzbget moved it back, in the queue."""
@@ -929,6 +1000,10 @@ class Proxy:
             for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", str(self.cfg.primary_score)), ("GroupSetDupeMode", "SCORE")):
                 self.rpc_call(path, auth, "editqueue", [cmd, arg, [nzbid]])
             score = self.cfg.primary_score
+        elif str(g.get("DupeMode") or "SCORE").upper() != "SCORE":  # FORCE/ALL turn off nzbget's failover
+            self.rpc_call(path, auth, "editqueue", ["GroupSetDupeMode", "SCORE", [nzbid]])
+            log.info("watch: nzbid=%d %s had DupeMode %s: set to SCORE, so it can fail over", nzbid, title,
+                     g.get("DupeMode"))
         with self.state.lock:
             self.state.record(key, info.fingerprint, nzbid, title, touch=True)
         log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors%s", nzbid, title, key, score,

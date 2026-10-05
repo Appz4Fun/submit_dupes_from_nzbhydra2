@@ -43,7 +43,7 @@ sequenceDiagram
     N->>N: files them in history as duplicate backups
 ```
 
-1. **The event.** nzbget runs the extension for `NZB_ADDED`. nzbget runs only one queue extension at a time,
+1. **The event.** nzbget runs the extension for `NZB_ADDED` and `NZB_DELETED`. nzbget runs only one queue extension at a time,
    so the extension starts a detached worker and exits immediately. Downloads and other extensions never
    wait for the search.
 2. **The pick.** After `SettleSeconds`, the worker reads nzbget's queue and history. It acts only when the
@@ -78,6 +78,13 @@ sequenceDiagram
 7. **The ranking.** Live postings are added under the pick's `DupeKey`. The five quickest are added after
    their probe, and the rest after their full sample. When every check is in, all donors are re-scored
    strictly in order of completeness.
+8. **The client's own backups.** Backups that the client sent along with its pick are health-checked at the
+   same time and re-scored the same way, with dead ones last. nzbget's failover then goes straight to the
+   most complete posting instead of trying them in the client's order. A pick in `FORCE` or `ALL` mode is
+   switched to `SCORE`, because those modes turn off failover.
+9. **The rescue.** When a download fails its health check (`NZB_DELETED` with status `HEALTH`) and nothing
+   of its `DupeKey` is left in the queue, the worker checks its backups and sends the most complete live one
+   back to the queue. It fails outright only when no backup is alive.
 
 Workers run one at a time, using a lock in the state folder, so the health checks never use more than half
 of each news server's connections, even when several downloads arrive together.

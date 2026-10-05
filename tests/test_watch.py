@@ -127,3 +127,54 @@ def test_a_resubmitted_pick_is_searched_again(make_proxy, nzbget, hydra, tmp_pat
     p.wait_idle(20)
     assert sum("t=search" in q for q in hydra.queries) > searches
     assert [a["params"][6] for a in nzbget.appends] == [KEY]
+
+
+def _backup(nzbget, tmp_path, nzb, nzbid, score, name, status="DELETED/DUPE", key=KEY):
+    """A backup the submitter sent beside its pick: nzbget keeps it in history, its NZB in NzbDir."""
+    fname = name + ".nzb"
+    (tmp_path / "nzbs" / (fname + ".queued")).write_bytes(nzb)
+    item = {"NZBID": nzbid, "Status": status, "DupeKey": key, "DupeScore": score, "NZBName": name, "Name": name,
+            "NZBFilename": fname, "FileSizeLo": len(nzb), "FileSizeHi": 0}
+    nzbget.history_items.append(item)
+    return item
+
+
+def test_backups_already_in_nzbget_are_ranked_by_health(make_proxy, nzbget, hydra, tmp_path):
+    # live (Shrinking S02E07): nzbdavkodi sent 14 backups; nzbget tried them in its own score order and burned
+    # through dead ones (569 failed articles each) while whole ones waited: rank them by health like donors
+    pick, dead, whole = release(TITLE, prefix="p"), release(TITLE, prefix="d"), release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(whole)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, dead, 501, PICK - 1, TITLE + ".d")
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    base = PICK - 1000
+    assert scores[501] == base + 1                                  # dead: last
+    assert base + 80 <= scores[502] <= base + 90                    # whole: first among backups
+    assert ("HistorySetParameter", "DupeAlive=100", [502]) in nzbget.edits
+    assert ("HistorySetParameter", "DupeAlive=0", [501]) in nzbget.edits
+
+
+def test_backups_of_other_keys_and_the_pick_itself_are_not_ranked(make_proxy, nzbget, hydra, tmp_path):
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="o")
+    nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, other, 503, PICK - 1, TITLE + ".o", key="tvdbid=2-S01-E01|other")
+    _backup(nzbget, tmp_path, other, 504, PICK - 3, TITLE + ".f", status="FAILURE/HEALTH")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[2] in ([503], [504], [500]) and e[0].startswith("History")]
+
+
+def test_a_forced_pick_is_switched_to_score_mode(make_proxy, nzbget, hydra, tmp_path):
+    # live (Shrinking S02E07 4144): the pick came in with DupeMode FORCE, which turns off every failover
+    item = _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    item["DupeMode"] = "FORCE"
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    assert ("GroupSetDupeMode", "SCORE", [500]) in nzbget.edits

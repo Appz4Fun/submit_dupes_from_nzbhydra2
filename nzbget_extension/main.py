@@ -100,9 +100,15 @@ def handle(proxy, nzbid):
     path, auth = "/jsonrpc", proxy.watch_auth()
     queue = proxy.rpc_call(path, auth, "listgroups", [0]) or []
     g = next((x for x in queue if ndp._int(x.get("NZBID")) == nzbid), None)
-    if g is None or g.get("Status") not in ndp.WATCH_STATUSES:
-        return  # gone, or already past download
-    job = proxy.pick_job(path, auth, g, queue, proxy.rpc_call(path, auth, "history", [True]) or [])
+    history = proxy.rpc_call(path, auth, "history", [True]) or []
+    if g is None:  # failed before (or while) it was searched: its backups must still get a turn
+        h = next((x for x in history if ndp._int(x.get("NZBID")) == nzbid), None)
+        if h is not None and str(h.get("Status", "")).startswith("FAILURE"):
+            proxy.rescue(path, auth, h)
+        return
+    if g.get("Status") not in ndp.WATCH_STATUSES:
+        return  # already past download
+    job = proxy.pick_job(path, auth, g, queue, history)
     if job is not None:
         proxy.discover(*job)
 
@@ -136,7 +142,8 @@ def main(env, argv):
         return connection_test(env) if env["NZBCP_COMMAND"] == "ConnectionTest" else COMMAND_ERROR
     if "--worker" in argv:
         return worker(env, int(argv[argv.index("--worker") + 1]))
-    if env.get("NZBNA_EVENT") != "NZB_ADDED":
+    failed = env.get("NZBNA_EVENT") == "NZB_DELETED" and env.get("NZBNA_DELETESTATUS") == "HEALTH"
+    if env.get("NZBNA_EVENT") != "NZB_ADDED" and not failed:
         return 0
     missing = [n for n in ("HydraUrl", "HydraApiKey") if not option(env, n)]
     if missing:

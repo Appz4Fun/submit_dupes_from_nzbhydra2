@@ -4,7 +4,7 @@ import importlib.util
 import os
 import time
 
-from tests.fakes import FakeHydra, release
+from tests.fakes import FakeHydra, FakeNntp, article_ids, release
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXT = os.path.join(ROOT, "nzbget_extension")
@@ -100,3 +100,50 @@ def test_connection_test_without_saved_options_says_so(nzbget, hydra, tmp_path, 
     assert _main().main(env, []) == 94
     out = capsys.readouterr().out
     assert "HydraUrl" in out and "Save" in out and "unknown url type" not in out
+
+
+def _failed_pick(nzbget, tmp_path, nntp, backups, nzbid=500, score=23859118):
+    """A pick that already failed (HEALTH) with DupeMode FORCE, and its backups in history: (prefix, nzbid)."""
+    nzbdir = tmp_path / "nzbs"
+    nzbdir.mkdir(exist_ok=True)
+    nzbget.config_entries = nntp.config(1) + [{"Name": "NzbDir", "Value": str(nzbdir)}]
+    nzbget.history_items.append({"NZBID": nzbid, "Status": "FAILURE/HEALTH", "DupeKey": KEY, "DupeScore": score,
+                                 "DupeMode": "FORCE", "NZBName": TITLE, "Name": TITLE})
+    for prefix, bid in backups:
+        nzb, name = release(TITLE, prefix=prefix), "%s.%s" % (TITLE, prefix)
+        (nzbdir / (name + ".nzb.queued")).write_bytes(nzb)
+        nzbget.history_items.append({"NZBID": bid, "Status": "DELETED/DUPE", "DupeKey": KEY, "DupeScore": score - bid,
+                                     "NZBName": name, "Name": name, "NZBFilename": name + ".nzb",
+                                     "FileSizeLo": len(nzb), "FileSizeHi": 0})
+
+
+def test_health_failure_starts_a_worker(monkeypatch, nzbget, hydra, tmp_path):
+    m, started = _main(), []
+    monkeypatch.setattr(m.subprocess, "Popen", lambda args, **kw: started.append(args))
+    env = _env(nzbget, hydra, tmp_path, NZBNA_EVENT="NZB_DELETED", NZBNA_NZBID="500", NZBNA_DELETESTATUS="HEALTH")
+    assert m.main(env, []) == 0
+    assert started and started[0][-2:] == ["--worker", "500"]
+
+
+def test_failed_pick_returns_its_wholest_backup(nzbget, hydra, tmp_path):
+    # live (Shrinking S02E07 4144): a FORCE pick died (0 of 1,034 articles) and nzbget parked it, "no better
+    # duplicate", with whole backups of the same key in history
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")))
+    _failed_pick(nzbget, tmp_path, nntp, [("d", 501), ("w", 502)])
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert ("HistoryRedownload", "", [502]) in nzbget.edits
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload" and e[2] != [502]]
+
+
+def test_failed_pick_with_only_dead_backups_returns_nothing(nzbget, hydra, tmp_path):
+    _failed_pick(nzbget, tmp_path, FakeNntp([]), [("d", 501), ("e", 502)])
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
+
+
+def test_failed_pick_whose_failover_already_happened_is_left_alone(nzbget, hydra, tmp_path):
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")))
+    _failed_pick(nzbget, tmp_path, nntp, [("w", 502)])
+    nzbget.queue_items.append({"NZBID": 503, "Status": "DOWNLOADING", "DupeKey": KEY, "DupeScore": 1})
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
