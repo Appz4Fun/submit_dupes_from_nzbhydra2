@@ -109,6 +109,11 @@ def handle(proxy, nzbid):
 
 def connection_test(env):
     """Settings-page button: can the indexer and nzbget be reached with these options?"""
+    missing = [n for n in ("HydraUrl", "HydraApiKey") if not option(env, n)]
+    if missing:
+        print("[ERROR] %s is empty: enter it, click Save, then test again (the test uses saved settings)"
+              % " and ".join(missing))
+        return COMMAND_ERROR
     cfg = config(env)
     try:
         query = urllib.parse.urlencode({"t": "caps", "apikey": cfg.hydra_apikey})

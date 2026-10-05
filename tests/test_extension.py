@@ -92,3 +92,11 @@ def test_extension_carries_the_service_code_unchanged():
         assert filecmp.cmp(os.path.join(ROOT, f), os.path.join(EXT, f), shallow=False), f
     cmp = filecmp.dircmp(os.path.join(ROOT, "vendor"), os.path.join(EXT, "vendor"), ignore=["__pycache__"])
     assert not (cmp.left_only or cmp.right_only or cmp.diff_files)
+
+
+def test_connection_test_without_saved_options_says_so(nzbget, hydra, tmp_path, capsys):
+    env = _env(nzbget, hydra, tmp_path, NZBCP_COMMAND="ConnectionTest")
+    del env["NZBPO_HydraUrl"]
+    assert _main().main(env, []) == 94
+    out = capsys.readouterr().out
+    assert "HydraUrl" in out and "Save" in out and "unknown url type" not in out
