@@ -14,11 +14,11 @@ fixing commit.
 | B6 | Low | Article downloader | Content rejected from one server ends the article without trying the other servers (`ArticleDownloader.cpp:180`). | 2026-10-05 | Open | |
 | B7 | Low | Article fallback | The tiling check can demote the correct article after a short one (`DupeArticleFallback.cpp:864`). | 2026-10-05 | Open | |
 | B8 | Low | RarReader | A RAR5 variable-length integer can shift by 64 bits or more, which is undefined behaviour (`ReadVLimited`, `ReadV`). | 2026-10-05 | Open | |
-| B9 | High | ReleaseName | A ranged multi-episode title (`S01E01-E02`) parses as episode 1 only, so double-episode files pair with single-episode postings (`ReleaseName.cpp:298/315`). | 2026-10-05 | Open | |
-| B10 | High | ReleaseName | `REPACK2` and `PROPER2` aren't seen as repacks, so an original posting becomes a donor for a repack (`ReleaseName.cpp:413`). | 2026-10-05 | Open | |
-| B11 | High | ReleaseName | `DolbyVision`, `Dolby-Vision`, and `Dolby_Vision` aren't parsed as DV, so the HDR check misses donors or matches SDR (`ReleaseName.cpp:267`). | 2026-10-05 | Open | |
-| B12 | High | ReleaseName | A title starting with a year-like number (2001, 1917, 2012) gets an empty title, so unrelated movies match (`ReleaseName.cpp:331/425`). | 2026-10-05 | Open | |
-| B13 | Medium | ReleaseName | `1080i` is folded into `1080p`, so interlaced and progressive encodes match (`ReleaseName.cpp:354`). | 2026-10-05 | Open | |
+| B9 | High | ReleaseName | A ranged multi-episode title (`S01E01-E02`) parses as episode 1 only, so double-episode files pair with single-episode postings (`ReleaseName.cpp:298/315`). | 2026-10-05 | Fixed | `95e21105` |
+| B10 | High | ReleaseName | `REPACK2` and `PROPER2` aren't seen as repacks, so an original posting becomes a donor for a repack (`ReleaseName.cpp:413`). | 2026-10-05 | Fixed | `95e21105` |
+| B11 | High | ReleaseName | `DolbyVision`, `Dolby-Vision`, and `Dolby_Vision` aren't parsed as DV, so the HDR check misses donors or matches SDR (`ReleaseName.cpp:267`). | 2026-10-05 | Fixed | `95e21105` |
+| B12 | High | ReleaseName | A title starting with a year-like number (2001, 1917, 2012) gets an empty title, so unrelated movies match (`ReleaseName.cpp:331/425`). | 2026-10-05 | Fixed | `95e21105` |
+| B13 | Medium | ReleaseName | `1080i` is folded into `1080p`, so interlaced and progressive encodes match (`ReleaseName.cpp:354`). | 2026-10-05 | Fixed | `95e21105` |
 | B14 | Low | Newznab | Named timezones other than UTC (EST, PST) read as UTC; 2-digit years and ISO 8601 dates give 0 (`Newznab.cpp:201/239`). | 2026-10-05 | Open | |
 | B15 | Low | DeadPostings | A future-dated entry never expires, and corrupt or unsorted hashes go straight into the sketch (`DeadPostings.cpp:58/68/106`). | 2026-10-05 | Open | |
 | B16 | High | DupeSearch flow | Donors are still added after the user deleted the pick, so an unwanted donor downloads (`DupeSearch.cpp:607/828/1007`). | 2026-10-05 | Open | |
