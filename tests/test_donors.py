@@ -458,3 +458,11 @@ def test_donors_pass_nzbgets_failover_threshold_under_the_default_primary_score(
     prim, donor = nzbget.appends[0]["params"][7], nzbget.appends[1]["params"][7]
     assert prim == 1000000 and prim - 1000 < donor < prim
     assert donor >= prim * 999 // 1000
+
+
+def test_indexer_refusal_is_remembered_by_the_next_process(make_proxy, nzbget, hydra):
+    # the nzbget extension runs each discovery in its own process: a refusal must survive it
+    hydra.add(TITLE, release(TITLE, prefix="a"), status=403, indexer="capped")
+    append(make_proxy(), primary())
+    second = make_proxy()                                                # same state dir, fresh process state
+    assert second.refused.get("capped", 0) > time.time()

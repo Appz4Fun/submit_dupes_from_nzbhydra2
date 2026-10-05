@@ -14,6 +14,7 @@ standard library and two vendored pure-Python libraries.
 - [Why the proxy exists](#why-the-proxy-exists)
 - [How it works](#how-it-works)
 - [What happens when you send a release](#what-happens-when-you-send-a-release)
+- [Run it as an nzbget extension](#run-it-as-an-nzbget-extension)
 - [Finding other postings](#finding-other-postings)
 - [Deciding what counts as the same release](#deciding-what-counts-as-the-same-release)
 - [Filtering candidates](#filtering-candidates)
@@ -160,6 +161,12 @@ is raised to it. The watcher signs in with `NZBGET_USERNAME` and `NZBGET_PASSWOR
 
 In live use, two nzbdavkodi picks of Industry S03 were completely dead. The proxy demoted them within
 20 seconds, and nzbget downloaded a live donor or backup instead.
+
+## Run it as an nzbget extension
+
+The same code also ships as an nzbget queue extension in [`nzbget_extension/`](nzbget_extension/README.md).
+The extension runs inside nzbget's extension system on every `NZB_ADDED` event, so it needs no separate
+service or proxy port. Use either the extension or this service's watcher, not both.
 
 ## Finding other postings
 
@@ -690,7 +697,7 @@ account's connection limit.
 
 ## Develop and test
 
-The repository includes 129 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
+The repository includes 137 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
 NZB downloads), and NNTP news servers (`STAT`, `BODY`, authentication, delays, and connection counting).
 
 ```bash
