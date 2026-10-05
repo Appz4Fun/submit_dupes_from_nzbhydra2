@@ -697,7 +697,7 @@ account's connection limit.
 
 ## Develop and test
 
-The repository includes 137 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
+The repository includes 139 tests that run against fakes of nzbget (JSON-RPC), NZBHydra2 (newznab XML and
 NZB downloads), and NNTP news servers (`STAT`, `BODY`, authentication, delays, and connection counting).
 
 ```bash

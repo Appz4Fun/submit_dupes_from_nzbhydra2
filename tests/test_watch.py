@@ -109,3 +109,21 @@ def test_pick_whose_nzb_file_is_ambiguous_is_never_demoted(make_proxy, nzbget, h
     p.watch_once()
     p.wait_idle(20)
     assert not [e for e in nzbget.edits if e[0] == "GroupSetDupeScore" and e[2] == [500]]
+
+
+def test_a_resubmitted_pick_is_searched_again(make_proxy, nzbget, hydra, tmp_path):
+    # live (Lanterns S01E04): the client's pick and backups were removed, then the same NZB came back as a new
+    # pick under a new NZBID; recording the old pick's fingerprint must not make the new one look like ours
+    nzb = release(TITLE, prefix="p")
+    _pick(nzbget, tmp_path, nzb, nzbid=500)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    searches = sum("t=search" in q for q in hydra.queries)
+    nzbget.queue_items.clear()
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    _pick(nzbget, tmp_path, nzb, nzbid=600, score=PICK + 5000)
+    p.watch_once()
+    p.wait_idle(20)
+    assert sum("t=search" in q for q in hydra.queries) > searches
+    assert [a["params"][6] for a in nzbget.appends] == [KEY]
