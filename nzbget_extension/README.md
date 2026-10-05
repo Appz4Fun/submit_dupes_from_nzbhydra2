@@ -5,9 +5,9 @@ release, checks how much of each one still exists on your news servers, and adds
 duplicate backups, most complete first. When the download fails, nzbget switches to the best backup. With
 the PR 850 build of nzbget, nzbget also borrows missing articles from the backups.
 
-The extension runs inside nzbget's own extension system. It needs no separate service, no proxy
-port, and no change to your downloaders. It handles every NZB that reaches nzbget, from NZBHydra2, nzbdavkodi, an RSS feed, or a
-manual upload.
+The extension runs inside nzbget's own extension system. It needs no separate service, no proxy port, and
+no change to your downloaders. It handles every NZB that reaches nzbget, from NZBHydra2, nzbdavkodi, an RSS
+feed, or a manual upload.
 
 ## Contents
 
