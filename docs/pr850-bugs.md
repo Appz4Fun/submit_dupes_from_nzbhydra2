@@ -11,7 +11,7 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B3 | Medium | Article fallback | Expected segment offsets assume list neighbours are neighbouring parts, so borrowing fails next to a gap in the NZB (`DupeArticleFallback.cpp:790`). | 2026-10-05 | Fixed | `` |
 | B4 | Medium | Dead-pick probe | A probe can start after `StopAll` and use the server pool after it is freed (`QueueCoordinator.cpp:217/246`). Also: `Run()` never checks `IsStopped()` before `Abandon()`, and `Measure` leaves `Finished=true` when stopped. | 2026-10-05 | Open | |
 | B5 | Medium | DupeSearch health | Detached `Walk` threads outlive the check and can touch the freed server pool (`DonorHealth.cpp:342`). | 2026-10-05 | Open | |
-| B6 | Low | Article downloader | Content rejected from one server ends the article without trying the other servers (`ArticleDownloader.cpp:180`). | 2026-10-05 | Open | |
+| B6 | Low | Article downloader | Content rejected from one server ends the article without trying the other servers (`ArticleDownloader.cpp:180`). | 2026-10-05 | Fixed | `73644a2f` |
 | B7 | Low | Article fallback | The tiling check can demote the correct article after a short one (`DupeArticleFallback.cpp:864`). | 2026-10-05 | Fixed | `` |
 | B8 | Low | RarReader | A RAR5 variable-length integer can shift by 64 bits or more, which is undefined behaviour (`ReadVLimited`, `ReadV`). | 2026-10-05 | Fixed | `138403e7` |
 | B9 | High | ReleaseName | A ranged multi-episode title (`S01E01-E02`) parses as episode 1 only, so double-episode files pair with single-episode postings (`ReleaseName.cpp:298/315`). | 2026-10-05 | Fixed | `95e21105` |
@@ -35,4 +35,4 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B27 | Low | Failover | A backup with a negative score never qualifies when the required score is 0, against the docs (`DupeCoordinator.cpp:432`). | 2026-10-05 | Fixed | `5e88428e` |
 | B28 | Low (future) | DiskState | Format 65 is reused for a pre-release layout, so a future upstream format 65 would be misread (`DiskState.cpp:708`). | 2026-10-05 | Open | |
 | B29 | Medium | History retry | A file parked mid-download is recorded under its DirectWrite temp name (`<id>.out.tmp`), so on retry its whole-file repair can't pair with the duplicate (`QueueCoordinator.cpp:1040`, `HistoryCoordinator.cpp:193/644`). Found by the PR850 session. | 2026-10-05 | Fixed | `e718ac6f` |
-| B30 | Medium | Article fallback | `MatchDonorFile` does not pair a twin when the pick's NZB is missing a segment, so borrowing never starts for files an indexer did not fully capture. Proposed; awaiting confirmation. | 2026-10-05 | Open | |
+| B30 | Medium | Article fallback | `MatchDonorFile` does not pair a twin when the pick's NZB is missing a segment, so borrowing never starts for files an indexer did not fully capture. Confirmed by the PR850 session. | 2026-10-05 | Fixed | `after 73644a2f` |
