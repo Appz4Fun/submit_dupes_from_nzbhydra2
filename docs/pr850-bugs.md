@@ -13,7 +13,7 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B5 | Medium | DupeSearch health | Detached `Walk` threads outlive the check and can touch the freed server pool (`DonorHealth.cpp:342`). | 2026-10-05 | Open | |
 | B6 | Low | Article downloader | Content rejected from one server ends the article without trying the other servers (`ArticleDownloader.cpp:180`). | 2026-10-05 | Open | |
 | B7 | Low | Article fallback | The tiling check can demote the correct article after a short one (`DupeArticleFallback.cpp:864`). | 2026-10-05 | Open | |
-| B8 | Low | RarReader | A RAR5 variable-length integer can shift by 64 bits or more, which is undefined behaviour (`ReadVLimited`, `ReadV`). | 2026-10-05 | Open | |
+| B8 | Low | RarReader | A RAR5 variable-length integer can shift by 64 bits or more, which is undefined behaviour (`ReadVLimited`, `ReadV`). | 2026-10-05 | Fixed | `138403e7` |
 | B9 | High | ReleaseName | A ranged multi-episode title (`S01E01-E02`) parses as episode 1 only, so double-episode files pair with single-episode postings (`ReleaseName.cpp:298/315`). | 2026-10-05 | Fixed | `95e21105` |
 | B10 | High | ReleaseName | `REPACK2` and `PROPER2` aren't seen as repacks, so an original posting becomes a donor for a repack (`ReleaseName.cpp:413`). | 2026-10-05 | Fixed | `95e21105` |
 | B11 | High | ReleaseName | `DolbyVision`, `Dolby-Vision`, and `Dolby_Vision` aren't parsed as DV, so the HDR check misses donors or matches SDR (`ReleaseName.cpp:267`). | 2026-10-05 | Fixed | `95e21105` |
@@ -32,6 +32,6 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B24 | Medium | DiskState | Queue format 66 and file format 9 are always written, so downgrading to upstream nzbget refuses the files and then loses the queue and history (`DiskState.cpp:31`). | 2026-10-05 | Open | |
 | B25 | Medium | HealthCheck=dupe | Failover never triggers when the fallback can't apply (RawArticle, par2-only failures, DupeMode force), because the attempt count stays at 0 (`QueueCoordinator.cpp:1474`). | 2026-10-05 | Fixed | `7a6a1cb7` |
 | B26 | Low | History return | `MoveToQueue` doesn't reset `DupeAttemptedArticles` or `DupeUnsourcedArticles`, so the failover gate uses the previous attempt's ratio (`HistoryCoordinator.cpp:428`). | 2026-10-05 | Fixed | `7a6a1cb7` |
-| B27 | Low | Failover | A backup with a negative score never qualifies when the required score is 0, against the docs (`DupeCoordinator.cpp:432`). | 2026-10-05 | Open | |
+| B27 | Low | Failover | A backup with a negative score never qualifies when the required score is 0, against the docs (`DupeCoordinator.cpp:432`). | 2026-10-05 | Fixed | `5e88428e` |
 | B28 | Low (future) | DiskState | Format 65 is reused for a pre-release layout, so a future upstream format 65 would be misread (`DiskState.cpp:708`). | 2026-10-05 | Open | |
 | B29 | Medium | History retry | A file parked mid-download is recorded under its DirectWrite temp name (`<id>.out.tmp`), so on retry its whole-file repair can't pair with the duplicate (`QueueCoordinator.cpp:1040`, `HistoryCoordinator.cpp:193/644`). Found by the PR850 session. | 2026-10-05 | Fixed | `e718ac6f` |
