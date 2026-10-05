@@ -44,5 +44,6 @@ fixing commit. Fixed bugs are pushed to [PR 850](https://github.com/nzbgetcom/nz
 | B36 | Low | HealthCheck=dupe | Under par deferral, `attempted == 0` lets a failover fire before borrowing got a turn (`QueueCoordinator.cpp:1483`). | 2026-10-05 | Open | |
 | B37 | Low | DupeSearch health | Shutdown can wait the whole `DupeHealthBudget`, because walkers don't notify `state->cond` on stop (`DonorHealth.cpp:383`). | 2026-10-05 | Open | |
 | B38 | Medium | ReleaseName | The B9 range rewrite removes `-NNNN` (a year or resolution) when the range is invalid, and a name without a group takes `e02` as its group (`ReleaseName.cpp:279-289`). | 2026-10-05 | Fixed | `e7cb4608` |
+| B39 | Medium | Lesson 18 recheck | The failed-article recheck (`371be45e`) takes connections just as the next backup's dead-pick probe needs one, so the probe gives up and a dead backup downloads in full (`dupefailoverchain` is flaky, failing about 40% of runs). Found by the PR850 session. | 2026-10-05 | Open | |
 
 B1–B30 were reported fixed by `d4ca8482`. An independent review rates B9, B16, B17, B24 and B30 as partial fixes, with follow-ups B31–B38. Known limit, by design: a history item's completed-file state is rewritten in the upstream format only when it is touched, so after a downgrade, upstream nzbget can't retry such an item. The queue and history themselves load fine.
