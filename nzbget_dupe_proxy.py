@@ -936,6 +936,12 @@ class Proxy:
             log.info("rescue %s: pick nzbid=%s failed; nzbget already returned a backup of key=%s", title,
                      failed.get("NZBID"), key)
             return 0
+        done = [x for x in self.rpc_call(path, auth, "history", [True]) or []  # the ranking can take minutes
+                if str(x.get("DupeKey", "")).lower() == key.lower() and str(x.get("Status", "")).startswith("SUCCESS")]
+        if done:  # a backup nzbget returned finished while the backups were ranked
+            log.info("rescue %s: pick nzbid=%s failed, but key=%s now has a successful download (nzbid=%s)", title,
+                     failed.get("NZBID"), key, done[0].get("NZBID"))
+            return 0
         alive = [(alive, score, bid) for bid, (score, alive, dead) in ranked.items() if not dead]
         if not alive:
             log.info("rescue %s: pick failed and no backup of key=%s is alive", title, key)

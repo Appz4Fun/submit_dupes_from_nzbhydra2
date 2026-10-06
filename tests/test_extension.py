@@ -235,3 +235,22 @@ def test_a_failed_pick_is_not_rescued_when_the_key_already_has_a_success(nzbget,
                                  "NZBName": TITLE + ".ok", "Name": TITLE + ".ok"})
     assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
     assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
+
+
+def test_a_rescue_rechecks_for_a_success_after_the_slow_ranking(monkeypatch, nzbget, hydra, tmp_path):
+    # live (Raymond and Ray 4340): the backup nzbget returned was still downloading when the rescue started
+    # (no success yet), the ranking took 4 minutes, the backup finished meanwhile, and the rescue then saw an
+    # empty queue and returned another backup: a 20 GB episode downloaded twice
+    import nzbget_dupe_proxy as ndp
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")))
+    _failed_pick(nzbget, tmp_path, nntp, [("w", 502)])
+    real = ndp.Proxy.rank_backups
+
+    def slow_rank(self, *a, **kw):
+        out = real(self, *a, **kw)
+        nzbget.history_items.append({"NZBID": 600, "Status": "SUCCESS/ALL", "DupeKey": KEY, "DupeScore": 1,
+                                     "NZBName": TITLE + ".ok", "Name": TITLE + ".ok"})  # finished while ranking
+        return out
+    monkeypatch.setattr(ndp.Proxy, "rank_backups", slow_rank)
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
