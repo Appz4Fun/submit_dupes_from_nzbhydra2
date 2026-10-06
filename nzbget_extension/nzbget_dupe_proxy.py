@@ -358,6 +358,9 @@ def _int(v):
         return 0
 
 
+RANK_REUSE = 120  # seconds a ranking of a key's backups is reused (every backup's nzbget event starts a worker)
+
+
 def score_base(primary):
     """Offset of every DupeScore sent under a primary scored `primary`: donors base+2..base+90, dead base+1."""
     return max(0, primary - 1000)
@@ -836,6 +839,14 @@ class Proxy:
             groups[_int(x["NZBID"])] = (x, info)
         if not groups and not pick_ids:
             return ranked
+        cached = self.state.data.get(key, {}).get("ranked") or {}
+        if (not pick_ids and cached and time.time() - cached.get("t", 0) < RANK_REUSE
+                and set(cached.get("items", {})) == {str(i) for i in groups}):
+            for bid, (score, alive, dead) in cached["items"].items():  # same backups, ranked a moment ago
+                ranked[int(bid)] = (score, alive, dead)
+            log.info("health %s: reusing the ranking of %d backup(s) from %d s ago", title, len(groups),
+                     time.time() - cached["t"])
+            return ranked
         log.info("health %s: checking %d backup(s) already in nzbget", title, len(groups))
         check = {i: info.message_ids for i, (_, info) in groups.items()}
         if pick_ids:  # the pick's own full sample: is it sure to fail?
@@ -878,6 +889,11 @@ class Proxy:
             ranked[bid] = (score, h.alive, False)
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive))
+        if ranked:
+            with self.state.lock:
+                g = self.state.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
+                g["ranked"] = {"t": time.time(), "items": {str(b): list(v) for b, v in ranked.items()}}
+                self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
             out.update(ranked=ranked, pick=pick_h)
         elif pick_h is not None:

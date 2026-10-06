@@ -254,3 +254,16 @@ def test_a_rescue_rechecks_for_a_success_after_the_slow_ranking(monkeypatch, nzb
     monkeypatch.setattr(ndp.Proxy, "rank_backups", slow_rank)
     assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
     assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
+
+
+def test_a_second_worker_reuses_a_fresh_ranking_of_the_same_backups(nzbget, hydra, tmp_path):
+    # live (Las Azules S02E06): every nzbget event for each backup started a worker that health-checked the same
+    # backups again (four times in six minutes), tying up the news-server connections and delaying the donors
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")) + article_ids(release(TITLE, prefix="x")))
+    _failed_pick(nzbget, tmp_path, nntp, [("w", 502), ("x", 503)])
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0
+    first = len(nntp.stats)
+    assert first > 0
+    assert m.main(env, ["--worker", "500"]) == 0
+    assert len(nntp.stats) == first          # nothing was asked of the news servers again
