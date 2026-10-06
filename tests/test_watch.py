@@ -262,3 +262,19 @@ def test_a_failing_pick_is_swapped_for_a_whole_donor_found_by_the_search(make_pr
     (d,) = nzbget.appends
     assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
     assert ("GroupDelete", "", [500]) in nzbget.edits
+
+
+def test_a_pick_whose_name_has_slashes_and_quotes_is_still_found_in_nzbdir(make_proxy, nzbget, hydra, tmp_path):
+    # live (Ted Lasso S03E01 4253): nzbget reports NZBFilename '[1/2] "X.mkv".nzb' but stores the copy as
+    # '2] _X.mkv_.nzb.queued' (slash, quotes sanitized), so the lookup by NZBFilename found nothing ("no readable
+    # NZB"), the pick was never searched: 8,895 failed articles and no donors
+    nzb = release(TITLE, prefix="p")
+    nzbdir = tmp_path / "nzbs"
+    nzbdir.mkdir()
+    (nzbdir / ("2] _" + TITLE + ".mkv_.nzb.queued")).write_bytes(nzb)
+    nzbget.config_entries = [{"Name": "NzbDir", "Value": str(nzbdir)}]
+    item = {"NZBID": 500, "Status": "DOWNLOADING", "NZBName": "2] _" + TITLE + ".mkv_",
+            "NZBFilename": '[1/2] "' + TITLE + '.mkv".nzb', "FileSizeLo": len(nzb), "FileSizeHi": 0}
+    p = _watcher(make_proxy)
+    info, ambiguous = p.queued_nzb("/jsonrpc", p.watch_auth(), item)
+    assert info is not None and not ambiguous

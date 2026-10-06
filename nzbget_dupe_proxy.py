@@ -1075,7 +1075,10 @@ class Proxy:
         nzbdir = opts.get("NzbDir", "").replace("${MainDir}", opts.get("MainDir", ""))
         size = (_int(g.get("FileSizeHi")) << 32) + _int(g.get("FileSizeLo"))
         infos = []
-        for f in sorted(glob.glob(glob.escape(os.path.join(nzbdir, g.get("NZBFilename") or "?")) + "*.queued")):
+        names = [n for n in (g.get("NZBFilename"), (g.get("NZBName") or "") + ".nzb") if n and n != ".nzb"]
+        # nzbget stores the copy under a sanitized name ('/' and quotes become '_'), which NZBName shows
+        found = sorted({f for n in names for f in glob.glob(glob.escape(os.path.join(nzbdir, n)) + "*.queued")})
+        for f in found:
             try:
                 with open(f, "rb") as fh:
                     infos.append(parse_nzb(fh.read()))
