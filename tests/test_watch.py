@@ -192,3 +192,45 @@ def test_a_dead_backup_is_never_raised(make_proxy, nzbget, hydra, tmp_path):
     p.wait_idle(30)
     assert nzbget.final_scores().get(501, PICK - 2500) == PICK - 2500
     assert ("HistorySetParameter", "DupeAlive=0", [501]) in nzbget.edits
+
+
+def _part(nzb, share):
+    ids = article_ids(nzb)
+    return ids[:int(len(ids) * share)]
+
+
+def test_a_pick_sure_to_fail_is_swapped_for_a_whole_backup(make_proxy, nzbget, hydra, tmp_path):
+    # live (Industry S01E06 4151): 31% of its articles arrived but nzbget's health read 97% (failures are a small
+    # share of the whole), so it would crawl for hours before failing while a 100% backup waited
+    pick, whole = release(TITLE, prefix="p"), release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(whole)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert ("HistoryRedownload", "", [502]) in nzbget.edits
+    assert ("GroupDelete", "", [500]) in nzbget.edits
+    assert nzbget.edits.index(("HistoryRedownload", "", [502])) < nzbget.edits.index(("GroupDelete", "", [500]))
+
+
+def test_a_mostly_whole_pick_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
+    pick, whole = release(TITLE, prefix="p"), release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.97) + article_ids(whole)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+
+
+def test_a_failing_pick_is_not_swapped_for_a_backup_no_better(make_proxy, nzbget, hydra, tmp_path):
+    pick, half = release(TITLE, prefix="p"), release(TITLE, prefix="h")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(half, 0.5)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, half, 502, PICK - 2, TITLE + ".h")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]

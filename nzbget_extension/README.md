@@ -82,7 +82,10 @@ sequenceDiagram
    same time and re-scored the same way, with dead ones last. nzbget's failover then goes straight to the
    most complete posting instead of trying them in the client's order. A pick in `FORCE` or `ALL` mode is
    switched to `SCORE`, because those modes turn off failover.
-9. **The rescue.** When a download fails its health check (`NZB_DELETED` with status `HEALTH`) and nothing
+9. **The swap.** The pick's own articles are sampled too. A pick that is less than 90% alive is sure to
+   fail, although nzbget's health counts failures against the whole download and would crawl for hours
+   first. If a backup is at least 95% alive, the worker sends it back to the queue and deletes the pick.
+10. **The rescue.** When a download fails its health check (`NZB_DELETED` with status `HEALTH`) and nothing
    of its `DupeKey` is left in the queue, the worker checks its backups and sends the most complete live one
    back to the queue. It fails outright only when no backup is alive.
 

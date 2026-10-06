@@ -67,6 +67,8 @@ class Config:
     health_min_articles: int = 50   # ... but at least this many articles
     health_max_articles: int = 1000  # ... and at most this many
     donor_min_alive: float = 0.5  # drop donors whose sampled articles are alive on no server below this share
+    swap_below: float = 0.9       # a pick sampled less alive than this is sure to fail: swap it ...
+    swap_backup_alive: float = 0.95  # ... for a backup sampled at least this alive
     nzbs_to_check_concurrently: int = 10      # NZBs whose articles are checked at the same time
     nntp_server_connection_per_nzb: int = 1   # connections per news server for each NZB being checked
     max_conns_per_nntp_server: int = 20       # hard cap per server (also <= the server's nzbget Connections)
@@ -624,7 +626,8 @@ class Proxy:
         ranks = Ranks()
         # the submitter's own backups (already in nzbget's history) get the same health ranking as donors
         backups = threading.Thread(target=self.rank_backups, daemon=True,
-                                   args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base))
+                                   args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
+                                         info.message_ids if nzbid > 0 else None))
         backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -805,7 +808,7 @@ class Proxy:
             log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
                      what)
 
-    def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0):
+    def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0, pick_ids=None):
         """Health-check the backups nzbget already holds under `key` (the submitter's own, parked in history
         as DUPE or COPY) and set their DupeScore like a donor's: most whole first, dead ones at base+1, so
         nzbget's failover goes straight to the wholest instead of trying them in the submitter's order."""
@@ -826,9 +829,14 @@ class Proxy:
         if not groups:
             return ranked
         log.info("health %s: checking %d backup(s) already in nzbget", title, len(groups))
-        checked = self.health_iter(servers, title, {i: info.message_ids for i, (_, info) in groups.items()},
-                                   full=True)
-        for bid, h in checked:
+        check = {i: info.message_ids for i, (_, info) in groups.items()}
+        if pick_ids:  # the pick's own full sample: is it sure to fail?
+            check["pick"] = pick_ids
+        pick_h = None
+        for bid, h in self.health_iter(servers, title, check, full=True):
+            if bid == "pick":
+                pick_h = h
+                continue
             x, info = groups[bid]
             if h is None or h.alive is None:
                 continue
@@ -846,7 +854,33 @@ class Proxy:
                 self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive), ", dead" if dead else "")
+        if pick_h is not None:
+            self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
         return ranked
+
+    def swap_if_failing(self, path, auth, title, pick_id, h, ranked):
+        """A pick whose full sample shows it will fail (alive below SWAP_BELOW; nzbget's own health only counts
+        failures against the whole download, so it crawls for hours first) is swapped for the wholest backup,
+        if that one is at least SWAP_BACKUP_ALIVE: the backup goes back to the queue, then the pick is deleted."""
+        if h.alive is None or h.missing < donor_health.MIN_KNOWN or h.alive >= self.cfg.swap_below:
+            return 0
+        best = max(((alive, bid) for bid, (_, alive, dead) in ranked.items() if not dead), default=None)
+        if best is None or best[0] < self.cfg.swap_backup_alive:
+            log.info("swap %s: pick nzbid=%d sampled alive=%s, will likely fail, but no backup is whole enough",
+                     title, pick_id, pct(h.alive))
+            return 0
+        alive, bid = best
+        if self.cfg.dry_run:
+            log.info("swap %s: DRY-RUN would swap pick nzbid=%d (alive=%s) for nzbid=%d (alive=%s)", title,
+                     pick_id, pct(h.alive), bid, pct(alive))
+            return 0
+        if not self.rpc_call(path, auth, "editqueue", ["HistoryRedownload", "", [bid]]):
+            log.warning("swap %s: could not return backup nzbid=%d", title, bid)
+            return 0
+        self.rpc_call(path, auth, "editqueue", ["GroupDelete", "", [pick_id]])
+        log.info("swap %s: pick nzbid=%d sampled alive=%s will fail: swapped for backup nzbid=%d (alive=%s)",
+                 title, pick_id, pct(h.alive), bid, pct(alive))
+        return bid
 
     def rescue(self, path, auth, failed):
         """A pick that failed its health check (history item `failed`) while nothing of its DupeKey is left
