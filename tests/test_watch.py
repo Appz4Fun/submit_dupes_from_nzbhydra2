@@ -278,3 +278,20 @@ def test_a_pick_whose_name_has_slashes_and_quotes_is_still_found_in_nzbdir(make_
     p = _watcher(make_proxy)
     info, ambiguous = p.queued_nzb("/jsonrpc", p.watch_auth(), item)
     assert info is not None and not ambiguous
+
+
+def test_equally_healthy_backups_rank_by_closeness_to_the_picks_size(make_proxy, nzbget, hydra, tmp_path):
+    # live (Slow Horses S05E01): a 16 GB backup ranked above two backups the pick's own size, because the
+    # client's backups were scored by health alone; a failover would pull a far bigger, different file
+    pick = release(TITLE, prefix="p")
+    far = release(TITLE, prefix="f", segs_per_file=60)     # about 3x the size
+    near = release(TITLE, prefix="n")
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(far) + article_ids(near)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, far, 501, PICK - 1, TITLE + ".f")      # the client scored the far one higher
+    _backup(nzbget, tmp_path, near, 502, PICK - 2, TITLE + ".n")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    assert scores[502] > scores[501]

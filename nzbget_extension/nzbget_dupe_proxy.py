@@ -628,7 +628,8 @@ class Proxy:
         checked_backups = {}  # rank_backups fills in "ranked" and "pick": the swap waits for the donors too
         backups = threading.Thread(target=self.rank_backups, daemon=True,
                                    args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
-                                         info.message_ids if nzbid > 0 else None, checked_backups))
+                                         info.message_ids if nzbid > 0 else None, checked_backups,
+                                         info.total_bytes))
         backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -815,7 +816,7 @@ class Proxy:
                      what)
 
     def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0, pick_ids=None,
-                     out=None):
+                     out=None, pick_bytes=None):
         """Health-check the backups nzbget already holds under `key` (the submitter's own, parked in history
         as DUPE or COPY) and set their DupeScore like a donor's: most whole first, dead ones at base+1, so
         nzbget's failover goes straight to the wholest instead of trying them in the submitter's order."""
@@ -839,7 +840,7 @@ class Proxy:
         check = {i: info.message_ids for i, (_, info) in groups.items()}
         if pick_ids:  # the pick's own full sample: is it sure to fail?
             check["pick"] = pick_ids
-        pick_h = None
+        pick_h, live = None, []
         for bid, h in self.health_iter(servers, title, check, full=True):
             if bid == "pick":
                 pick_h = h
@@ -848,7 +849,10 @@ class Proxy:
             if h is None or h.alive is None:
                 continue
             dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
-            score = 1 if dead else ranks.take(h.alive)
+            if not dead:
+                live.append((bid, h))  # scored below, once all are in: closest size first among equals
+                continue
+            score = 1
             if dead and _int(x.get("DupeScore")) <= score + base:  # already below base+1: never raise a dead one
                 self.rpc_call(path, auth, "editqueue", ["HistorySetParameter", "DupeAlive=0", [bid]])
                 score = _int(x.get("DupeScore")) - base
@@ -861,6 +865,19 @@ class Proxy:
                 self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive), ", dead" if dead else "")
+        # live backups, wholest first; among equals the size closest to the pick's (a different size is a different file)
+        live.sort(key=lambda bh: (-round(100 * bh[1].alive),
+                                  abs(groups[bh[0]][1].total_bytes - pick_bytes) if pick_bytes else 0))
+        for bid, h in live:
+            x, info = groups[bid]
+            score = ranks.take(h.alive)
+            if not self.set_score(path, auth, bid, score, "DupeAlive=%d" % round(100 * h.alive)):
+                stats["rescore"] += 1
+                continue
+            stats["backup-ranked"] += 1
+            ranked[bid] = (score, h.alive, False)
+            log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s", bid, x.get("NZBName") or x.get("Name"),
+                     _int(x.get("DupeScore")), score + base, pct(h.alive))
         if out is not None:  # the caller swaps once its own donors are in too
             out.update(ranked=ranked, pick=pick_h)
         elif pick_h is not None:
