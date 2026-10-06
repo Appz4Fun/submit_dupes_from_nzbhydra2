@@ -174,3 +174,37 @@ def test_a_pick_that_failed_before_its_worker_ran_still_gets_donors(nzbget, hydr
     assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
     (d,) = nzbget.appends
     assert d["params"][6] == KEY
+
+
+def test_a_downloaded_file_starts_a_sweep_at_most_every_90_seconds(monkeypatch, nzbget, hydra, tmp_path):
+    # live (Foundation S02E01 4224): nzbget restarted 15 s after the NZB was added; systemd killed the detached
+    # worker, and nothing ever searched the pick. nzbget runs the extension on every downloaded file, so use that
+    m, started = _main(), []
+    monkeypatch.setattr(m.subprocess, "Popen", lambda args, **kw: started.append(args))
+    env = _env(nzbget, hydra, tmp_path, NZBNA_EVENT="FILE_DOWNLOADED", NZBNA_NZBID="500")
+    assert m.main(env, []) == 0 and m.main(env, []) == 0
+    assert len(started) == 1 and started[0][-1] == "--sweep"
+    stamp = tmp_path / "dupe-donors" / "sweep.stamp"
+    old = time.time() - 120
+    os.utime(stamp, (old, old))
+    assert m.main(env, []) == 0
+    assert len(started) == 2
+
+
+def test_sweep_searches_a_pick_whose_worker_died(nzbget, hydra, tmp_path):
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--sweep"]) == 0
+    (d,) = nzbget.appends
+    assert d["params"][6] == KEY
+
+
+def test_sweep_leaves_a_pick_that_was_already_searched(nzbget, hydra, tmp_path):
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0 and len(nzbget.appends) == 1
+    queries = len(hydra.queries)
+    assert m.main(env, ["--sweep"]) == 0
+    assert len(nzbget.appends) == 1 and len(hydra.queries) == queries

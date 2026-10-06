@@ -43,7 +43,7 @@ sequenceDiagram
     N->>N: files them in history as duplicate backups
 ```
 
-1. **The event.** nzbget runs the extension for `NZB_ADDED` and `NZB_DELETED`. nzbget runs only one queue extension at a time,
+1. **The event.** nzbget runs the extension for `NZB_ADDED`, `NZB_DELETED` and `FILE_DOWNLOADED`. nzbget runs only one queue extension at a time,
    so the extension starts a detached worker and exits immediately. Downloads and other extensions never
    wait for the search.
 2. **The pick.** After `SettleSeconds`, the worker reads nzbget's queue and history. It acts only when the
@@ -88,6 +88,10 @@ sequenceDiagram
 10. **The rescue.** When a download fails its health check (`NZB_DELETED` with status `HEALTH`) and nothing
    of its `DupeKey` is left in the queue, the worker checks its backups and sends the most complete live one
    back to the queue. It fails outright only when no backup is alive.
+11. **The sweep.** A restart of nzbget kills a worker that is still running, because systemd stops the whole
+    service group, and nzbget doesn't repeat `NZB_ADDED` for items already in the queue. On every downloaded
+    file, but at most every 90 seconds, the extension starts a sweep. The sweep searches every queued pick that
+    no worker has searched yet. It skips itself while another worker is running.
 
 Workers run one at a time, using a lock in the state folder, so the health checks never use more than half
 of each news server's connections, even when several downloads arrive together.

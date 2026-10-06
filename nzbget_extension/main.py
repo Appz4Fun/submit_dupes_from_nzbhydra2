@@ -96,6 +96,32 @@ def worker(env, nzbid):
     return 0
 
 
+def sweep(env):
+    """Recovery: a worker killed by an nzbget restart (systemd stops the whole service group) leaves its pick
+    unsearched, and nzbget never repeats NZB_ADDED. Search every queued pick not yet searched."""
+    cfg = config(env)
+    os.makedirs(cfg.state_dir, exist_ok=True)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
+                        filename=os.path.join(cfg.state_dir, "dupe-donors.log"))
+    with open(os.path.join(cfg.state_dir, "worker.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)  # a worker is running: it owns the connections
+        except OSError:
+            return 0
+        proxy = ndp.Proxy(cfg)
+        handler = NzbgetLog(proxy)
+        log.setLevel(logging.INFO)
+        log.addHandler(handler)
+        try:
+            proxy.watch_once()  # first sight of each queued item starts its settle time ...
+            time.sleep(cfg.watch_settle)  # ... the submitter's own backups land first
+            proxy.watch_once()
+            proxy.wait_idle(3600)
+        finally:
+            log.removeHandler(handler)
+    return 0
+
+
 def handle(proxy, nzbid):
     path, auth = "/jsonrpc", proxy.watch_auth()
     queue = proxy.rpc_call(path, auth, "listgroups", [0]) or []
@@ -157,11 +183,38 @@ def connection_test(env):
     return COMMAND_SUCCESS
 
 
+SWEEP_EVERY = 90  # seconds between sweeps: nzbget runs the extension for every downloaded file
+
+
+def start_sweep(env):
+    """On a downloaded file: start a detached sweep unless one started in the last SWEEP_EVERY seconds."""
+    if not option(env, "HydraUrl") or not option(env, "HydraApiKey"):
+        return 0
+    state_dir = config(env).state_dir
+    os.makedirs(state_dir, exist_ok=True)
+    stamp = os.path.join(state_dir, "sweep.stamp")
+    try:
+        if time.time() - os.path.getmtime(stamp) < SWEEP_EVERY:
+            return 0
+    except OSError:
+        pass
+    with open(stamp, "w"):
+        pass
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), "--sweep"], env=dict(env),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                     start_new_session=True, close_fds=True)
+    return 0
+
+
 def main(env, argv):
     if env.get("NZBCP_COMMAND"):
         return connection_test(env) if env["NZBCP_COMMAND"] == "ConnectionTest" else COMMAND_ERROR
     if "--worker" in argv:
         return worker(env, int(argv[argv.index("--worker") + 1]))
+    if "--sweep" in argv:
+        return sweep(env)
+    if env.get("NZBNA_EVENT") == "FILE_DOWNLOADED":
+        return start_sweep(env)
     failed = env.get("NZBNA_EVENT") == "NZB_DELETED" and env.get("NZBNA_DELETESTATUS") == "HEALTH"
     if env.get("NZBNA_EVENT") != "NZB_ADDED" and not failed:
         return 0

@@ -9,7 +9,7 @@
   "author": "xbmc4lyfe",
   "license": "GPL-2.0",
   "about": "Adds health-checked duplicate postings of every new download as nzbget dupe backups.",
-  "queueEvents": "NZB_ADDED, NZB_DELETED",
+  "queueEvents": "NZB_ADDED, NZB_DELETED, FILE_DOWNLOADED",
   "taskTime": "",
   "requirements": [
     "Python 3.8 or newer.",
