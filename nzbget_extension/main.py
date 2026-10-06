@@ -105,6 +105,7 @@ def handle(proxy, nzbid):
         h = next((x for x in history if ndp._int(x.get("NZBID")) == nzbid), None)
         if h is not None and str(h.get("Status", "")).startswith("FAILURE"):
             proxy.rescue(path, auth, h)
+            search_failed(proxy, path, auth, h)
         else:
             ndp.log.info("watch: nzbid=%d left the queue before it was searched (%s): nothing to do", nzbid,
                          h.get("Status") if h else "gone")
@@ -114,6 +115,22 @@ def handle(proxy, nzbid):
     job = proxy.pick_job(path, auth, g, queue, history)
     if job is not None:
         proxy.discover(*job)
+
+
+def search_failed(proxy, path, auth, h):
+    """A pick that failed before it was searched (nzbget failed it over within the settle time): search the
+    indexer for its other postings anyway, so its key gets donors beyond the client's own backups."""
+    nzbid, key = ndp._int(h.get("NZBID")), h.get("DupeKey") or ""
+    info, _ = proxy.queued_nzb(path, auth, h)
+    if not key or info is None or nzbid in proxy.state.nzbids_for(info.fingerprint):
+        return
+    title = h.get("NZBName") or h.get("Name") or ""
+    with proxy.state.lock:
+        proxy.state.record(key, info.fingerprint, nzbid, title, touch=True)
+    ndp.log.info("watch: pick nzbid=%d %s failed before it was searched: discovering donors for key=%s", nzbid,
+                 title, key)
+    proxy.discover(key, title, info, h.get("Category") or "", path, auth, -nzbid, time.time(),
+                   ndp.score_base(ndp._int(h.get("DupeScore"))))
 
 
 def connection_test(env):

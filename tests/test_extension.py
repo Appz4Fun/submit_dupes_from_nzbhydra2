@@ -158,3 +158,19 @@ def test_a_pick_that_failed_over_before_its_worker_ran_still_gets_its_backups_ra
     assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
     assert ("HistorySetParameter", "DupeAlive=100", [502]) in nzbget.edits
     assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
+
+
+def test_a_pick_that_failed_before_its_worker_ran_still_gets_donors(nzbget, hydra, tmp_path):
+    # live (Industry S04E07 4162): the pick failed over within the settle time, so the indexer was never
+    # searched; ~50 postings were listed but only the client's 8 backups were in nzbget
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    _failed_pick(nzbget, tmp_path, FakeNntp(article_ids(donor)), [])
+    nzbdir = tmp_path / "nzbs"
+    pick = release(TITLE, prefix="p")
+    (nzbdir / (TITLE + ".nzb.queued")).write_bytes(pick)
+    nzbget.history_items[0].update({"NZBFilename": TITLE + ".nzb", "FileSizeLo": len(pick), "FileSizeHi": 0,
+                                    "Category": "tv"})
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    (d,) = nzbget.appends
+    assert d["params"][6] == KEY
