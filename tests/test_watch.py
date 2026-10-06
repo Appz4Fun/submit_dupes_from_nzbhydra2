@@ -295,3 +295,15 @@ def test_equally_healthy_backups_rank_by_closeness_to_the_picks_size(make_proxy,
     p.wait_idle(30)
     scores = nzbget.final_scores()
     assert scores[502] > scores[501]
+
+
+def test_a_pick_already_out_of_the_queue_is_never_swapped(make_proxy, nzbget, hydra, tmp_path):
+    # live (Slow Horses S05E01 4256): the server downloaded the pick in about a minute, discovery finished three
+    # minutes in, and the swap then returned a backup for a pick already in history as SUCCESS/HEALTH
+    from donor_health import Health
+    p = _watcher(make_proxy)
+    nzbget.history_items.append({"NZBID": 500, "Status": "SUCCESS/HEALTH", "DupeKey": KEY, "DupeScore": PICK})
+    doomed = Health(checked=20, present=1, missing=19, error=0)
+    got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
+    assert got == 0
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]

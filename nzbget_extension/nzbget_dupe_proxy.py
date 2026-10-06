@@ -890,6 +890,11 @@ class Proxy:
         if that one is at least SWAP_BACKUP_ALIVE: the backup goes back to the queue, then the pick is deleted."""
         if h.alive is None or h.missing < donor_health.MIN_KNOWN or h.alive >= self.cfg.swap_below:
             return 0
+        queued = self.rpc_call(path, auth, "listgroups", [0]) or []
+        if not any(_int(g.get("NZBID")) == pick_id and g.get("Status") in WATCH_STATUSES for g in queued):
+            log.info("swap %s: pick nzbid=%d sampled alive=%s, but it already left the queue: no swap", title,
+                     pick_id, pct(h.alive))
+            return 0  # discovery outlasted the download: the pick is done (or parked), a swap would redownload
         best = max(((alive, bid) for bid, (_, alive, dead) in ranked.items() if not dead), default=None)
         if best is None or best[0] < self.cfg.swap_backup_alive:
             log.info("swap %s: pick nzbid=%d sampled alive=%s, will likely fail, but no backup is whole enough",
