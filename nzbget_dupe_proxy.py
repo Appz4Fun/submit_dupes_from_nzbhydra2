@@ -625,9 +625,10 @@ class Proxy:
         primary_check.start()
         ranks = Ranks()
         # the submitter's own backups (already in nzbget's history) get the same health ranking as donors
+        checked_backups = {}  # rank_backups fills in "ranked" and "pick": the swap waits for the donors too
         backups = threading.Thread(target=self.rank_backups, daemon=True,
                                    args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
-                                         info.message_ids if nzbid > 0 else None))
+                                         info.message_ids if nzbid > 0 else None, checked_backups))
         backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -723,6 +724,11 @@ class Proxy:
         self.rerank(path, auth, placed.values(), dist, stats)
         primary_check.join()
         backups.join()
+        if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
+            candidates = dict(checked_backups.get("ranked", {}))
+            candidates.update({p.id: (p.score, p.alive, False) for p in placed.values()
+                               if p.score > 1 and p.alive is not None})
+            self.swap_if_failing(path, auth, title, abs(nzbid), checked_backups["pick"], candidates)
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -808,7 +814,8 @@ class Proxy:
             log.info("%s but already left the queue (nzbget parked or finished it); donors take over from history",
                      what)
 
-    def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0, pick_ids=None):
+    def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0, pick_ids=None,
+                     out=None):
         """Health-check the backups nzbget already holds under `key` (the submitter's own, parked in history
         as DUPE or COPY) and set their DupeScore like a donor's: most whole first, dead ones at base+1, so
         nzbget's failover goes straight to the wholest instead of trying them in the submitter's order."""
@@ -826,7 +833,7 @@ class Proxy:
                 continue
             seen.add(info.fingerprint)
             groups[_int(x["NZBID"])] = (x, info)
-        if not groups:
+        if not groups and not pick_ids:
             return ranked
         log.info("health %s: checking %d backup(s) already in nzbget", title, len(groups))
         check = {i: info.message_ids for i, (_, info) in groups.items()}
@@ -854,7 +861,9 @@ class Proxy:
                 self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive), ", dead" if dead else "")
-        if pick_h is not None:
+        if out is not None:  # the caller swaps once its own donors are in too
+            out.update(ranked=ranked, pick=pick_h)
+        elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
         return ranked
 

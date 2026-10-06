@@ -247,3 +247,18 @@ def test_a_skipped_copy_scored_above_the_pick_does_not_hide_it(make_proxy, nzbge
     p.watch_once()
     p.wait_idle(20)
     assert len(nzbget.appends) == 1
+
+
+def test_a_failing_pick_is_swapped_for_a_whole_donor_found_by_the_search(make_proxy, nzbget, hydra, tmp_path):
+    # live (Foundation S03E08 4185): the pick sampled 39% alive, the client's one backup 38%; the search added
+    # three 100% donors, but the swap only looked at the client's backups: "no backup is whole enough"
+    pick, donor = release(TITLE, prefix="p"), release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(donor)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+    assert ("GroupDelete", "", [500]) in nzbget.edits
