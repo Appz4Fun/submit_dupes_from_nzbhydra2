@@ -907,6 +907,15 @@ class Proxy:
         if h.alive is None or h.missing < donor_health.MIN_KNOWN or h.alive >= self.cfg.swap_below:
             return 0
         queued = self.rpc_call(path, auth, "listgroups", [0]) or []
+        item = next((g for g in queued if _int(g.get("NZBID")) == pick_id), None)
+        if item and item.get("Status") in WATCH_STATUSES and _int(item.get("FileSizeMB")) > 0 \
+                and _int(item.get("DownloadedSizeMB")) >= 0.8 * _int(item.get("FileSizeMB")) \
+                and _int(item.get("Health")) >= _int(item.get("CriticalHealth")):
+            log.info("swap %s: pick nzbid=%d sampled alive=%s, but it is %d%% downloaded and healthy (%d of critical "
+                     "%d): no swap", title, pick_id, pct(h.alive),
+                     100 * _int(item.get("DownloadedSizeMB")) // _int(item.get("FileSizeMB")),
+                     _int(item.get("Health")), _int(item.get("CriticalHealth")))
+            return 0  # nearly done and above critical: par repair or stream repair finishes it, nzbget's failover covers the rest
         if not any(_int(g.get("NZBID")) == pick_id and g.get("Status") in WATCH_STATUSES for g in queued):
             log.info("swap %s: pick nzbid=%d sampled alive=%s, but it already left the queue: no swap", title,
                      pick_id, pct(h.alive))

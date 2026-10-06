@@ -307,3 +307,16 @@ def test_a_pick_already_out_of_the_queue_is_never_swapped(make_proxy, nzbget, hy
     got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
     assert got == 0
     assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+
+
+def test_a_pick_almost_downloaded_and_above_critical_health_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
+    # live (Last Seen S01E03 4661): discovery took 2.5 min, the pick had downloaded 95% of its articles (health
+    # above critical) when the swap, going by its own 82% sample, deleted it and started a copy from zero
+    from donor_health import Health
+    p = _watcher(make_proxy)
+    nzbget.queue_items.append({"NZBID": 500, "Status": "DOWNLOADING", "DupeKey": KEY, "DupeScore": PICK,
+                               "FileSizeMB": 10000, "DownloadedSizeMB": 9600, "Health": 952, "CriticalHealth": 800})
+    doomed = Health(checked=100, present=82, missing=18, error=0)
+    got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
+    assert got == 0
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
