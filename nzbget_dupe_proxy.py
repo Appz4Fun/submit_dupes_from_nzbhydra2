@@ -830,12 +830,15 @@ class Proxy:
         items = [x for x in self.rpc_call(path, auth, "history", [True]) or []
                  if str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("NZBID")) != pick_id
                  and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
-        groups, seen = {}, set()
+        groups, seen, twins = {}, {}, []  # twins: backups with the same NZB as one already in groups
         for x in items:
             info, _ = self.queued_nzb(path, auth, x)
-            if info is None or info.fingerprint in seen:
+            if info is None:
                 continue
-            seen.add(info.fingerprint)
+            if info.fingerprint in seen:
+                twins.append((_int(x["NZBID"]), x, seen[info.fingerprint]))
+                continue
+            seen[info.fingerprint] = _int(x["NZBID"])
             groups[_int(x["NZBID"])] = (x, info)
         if not groups and not pick_ids:
             return ranked
@@ -889,6 +892,16 @@ class Proxy:
             ranked[bid] = (score, h.alive, False)
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive))
+        for tid, x, sibling in twins:  # the same posting is as healthy as its sibling: same rank, never its stale score
+            if sibling not in ranked:
+                continue
+            score, alive, dead = ranked[sibling]
+            if dead and _int(x.get("DupeScore")) <= score + base:
+                continue  # already below a dead one's rank: never raise
+            if self.set_score(path, auth, tid, score, "DupeAlive=%d" % round(100 * alive)):
+                stats["backup-ranked"] += 1
+                log.info("ranked backup nzbid=%d %s: same NZB as nzbid=%d, score %d -> %d", tid,
+                         x.get("NZBName") or x.get("Name"), sibling, _int(x.get("DupeScore")), score + base)
         if ranked:
             with self.state.lock:
                 g = self.state.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
