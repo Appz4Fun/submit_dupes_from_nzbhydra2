@@ -234,3 +234,16 @@ def test_a_failing_pick_is_not_swapped_for_a_backup_no_better(make_proxy, nzbget
     p.watch_once()
     p.wait_idle(30)
     assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+
+
+def test_a_skipped_copy_scored_above_the_pick_does_not_hide_it(make_proxy, nzbget, hydra, tmp_path):
+    # live (Industry S04E06 4155): nzbdavkodi sent the same NZB twice; nzbget filed the one scored 8 higher as
+    # DELETED/COPY and downloads the other, which then looked like a backup and was never searched
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    nzb = release(TITLE, prefix="p")
+    _pick(nzbget, tmp_path, nzb)
+    _backup(nzbget, tmp_path, nzb, 499, PICK + 8, TITLE, status="DELETED/COPY")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    assert len(nzbget.appends) == 1

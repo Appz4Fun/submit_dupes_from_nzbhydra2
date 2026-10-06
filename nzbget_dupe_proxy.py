@@ -1022,9 +1022,12 @@ class Proxy:
         Backups and nzbget's failover promotions rank below their pick and are left alone."""
         nzbid = _int(g.get("NZBID"))
         key, score, title = g.get("DupeKey") or "", _int(g.get("DupeScore")), g.get("NZBName") or ""
-        if key and any(x is not g and _int(x.get("NZBID")) != nzbid and
-                       str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("DupeScore")) > score
-                       for x in queue + history):
+        above = [x for x in queue + history if x is not g and _int(x.get("NZBID")) != nzbid
+                 and x.get("Status") != "DELETED/COPY"  # a copy nzbget skipped is not a pick
+                 and str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("DupeScore")) > score]
+        if key and above:
+            log.info("watch: nzbid=%d %s is a backup (nzbid=%s scores higher under its key): left alone", nzbid,
+                     title, above[0].get("NZBID"))
             return None  # a backup or promoted duplicate: its pick was (or is) handled
         info, ambiguous = self.queued_nzb(path, auth, g)
         if info is None:
