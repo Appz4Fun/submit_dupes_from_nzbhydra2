@@ -224,3 +224,14 @@ def test_a_sweep_is_not_started_while_a_worker_holds_the_lock(monkeypatch, nzbge
         assert m.main(env, []) == 0
         assert started == []                    # a worker is running: leave it alone
     assert m.main(env, []) == 0 and len(started) == 1
+
+
+def test_a_failed_pick_is_not_rescued_when_the_key_already_has_a_success(nzbget, hydra, tmp_path):
+    # live (Slow Horses S06E01 4320): the pick was dead, nzbget failed over and backup 4321 succeeded; a later
+    # rescue for the failed pick saw an empty queue and returned another backup: the episode downloaded twice
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")))
+    _failed_pick(nzbget, tmp_path, nntp, [("w", 502)])
+    nzbget.history_items.append({"NZBID": 600, "Status": "SUCCESS/ALL", "DupeKey": KEY, "DupeScore": 1,
+                                 "NZBName": TITLE + ".ok", "Name": TITLE + ".ok"})
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]

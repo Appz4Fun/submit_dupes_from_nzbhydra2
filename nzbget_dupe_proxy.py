@@ -920,6 +920,12 @@ class Proxy:
         key, title = failed.get("DupeKey") or "", failed.get("NZBName") or failed.get("Name") or ""
         if not key:
             return 0
+        done = [x for x in self.rpc_call(path, auth, "history", [True]) or []
+                if str(x.get("DupeKey", "")).lower() == key.lower() and str(x.get("Status", "")).startswith("SUCCESS")]
+        if done:
+            log.info("rescue %s: pick nzbid=%s failed, but key=%s already has a successful download (nzbid=%s)", title,
+                     failed.get("NZBID"), key, done[0].get("NZBID"))
+            return 0  # nzbget's failover already delivered one: another backup would download the episode twice
         servers = self.news_servers(self.rpc_call(path, auth, "config", []) or [], title)
         # rank the remaining backups either way: if nzbget's failover already returned one and it dies too,
         # the next failover must go to the wholest
