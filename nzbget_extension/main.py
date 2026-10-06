@@ -183,16 +183,22 @@ def connection_test(env):
     return COMMAND_SUCCESS
 
 
-SWEEP_EVERY = 90  # seconds between sweeps: nzbget runs the extension for every downloaded file
+SWEEP_EVERY = 15  # seconds between sweeps: nzbget runs the extension for every downloaded file
 
 
 def start_sweep(env):
-    """On a downloaded file: start a detached sweep unless one started in the last SWEEP_EVERY seconds."""
+    """On a downloaded file: start a detached sweep, unless a worker or sweep is running (it holds the lock;
+    a stamp alone would outlive a sweep that an nzbget restart killed) or one started within SWEEP_EVERY s."""
     if not option(env, "HydraUrl") or not option(env, "HydraApiKey"):
         return 0
     state_dir = config(env).state_dir
     os.makedirs(state_dir, exist_ok=True)
     stamp = os.path.join(state_dir, "sweep.stamp")
+    with open(os.path.join(state_dir, "worker.lock"), "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0  # a worker or sweep is running
     try:
         if time.time() - os.path.getmtime(stamp) < SWEEP_EVERY:
             return 0
