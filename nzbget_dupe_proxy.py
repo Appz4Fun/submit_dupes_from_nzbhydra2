@@ -887,12 +887,18 @@ class Proxy:
         in the queue (DupeMode FORCE, or backups nzbget filed as copies): rank its backups by health and send
         the wholest alive one back to the queue. Never fail outright while a viable backup remains."""
         key, title = failed.get("DupeKey") or "", failed.get("NZBName") or failed.get("Name") or ""
-        queue = self.rpc_call(path, auth, "listgroups", [0]) or []
-        if not key or any(str(x.get("DupeKey", "")).lower() == key.lower() for x in queue):
-            return 0  # nzbget's own failover already returned one
+        if not key:
+            return 0
         servers = self.news_servers(self.rpc_call(path, auth, "config", []) or [], title)
+        # rank the remaining backups either way: if nzbget's failover already returned one and it dies too,
+        # the next failover must go to the wholest
         ranked = self.rank_backups(servers, path, auth, key, title, _int(failed.get("NZBID")), Ranks(), Counter(),
                                    score_base(_int(failed.get("DupeScore"))))
+        queue = self.rpc_call(path, auth, "listgroups", [0]) or []
+        if any(str(x.get("DupeKey", "")).lower() == key.lower() for x in queue):
+            log.info("rescue %s: pick nzbid=%s failed; nzbget already returned a backup of key=%s", title,
+                     failed.get("NZBID"), key)
+            return 0
         alive = [(alive, score, bid) for bid, (score, alive, dead) in ranked.items() if not dead]
         if not alive:
             log.info("rescue %s: pick failed and no backup of key=%s is alive", title, key)

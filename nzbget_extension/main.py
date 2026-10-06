@@ -105,6 +105,9 @@ def handle(proxy, nzbid):
         h = next((x for x in history if ndp._int(x.get("NZBID")) == nzbid), None)
         if h is not None and str(h.get("Status", "")).startswith("FAILURE"):
             proxy.rescue(path, auth, h)
+        else:
+            ndp.log.info("watch: nzbid=%d left the queue before it was searched (%s): nothing to do", nzbid,
+                         h.get("Status") if h else "gone")
         return
     if g.get("Status") not in ndp.WATCH_STATUSES:
         return  # already past download

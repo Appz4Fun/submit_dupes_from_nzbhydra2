@@ -147,3 +147,14 @@ def test_failed_pick_whose_failover_already_happened_is_left_alone(nzbget, hydra
     nzbget.queue_items.append({"NZBID": 503, "Status": "DOWNLOADING", "DupeKey": KEY, "DupeScore": 1})
     assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
     assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
+
+
+def test_a_pick_that_failed_over_before_its_worker_ran_still_gets_its_backups_ranked(nzbget, hydra, tmp_path):
+    # live (Industry S04E07 4162): the pick failed over within the settle time, and nzbget's failover had
+    # already queued a backup, so the worker found it gone and exited without ranking the remaining backups
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="w")))
+    _failed_pick(nzbget, tmp_path, nntp, [("d", 501), ("w", 502)])
+    nzbget.queue_items.append({"NZBID": 503, "Status": "DOWNLOADING", "DupeKey": KEY, "DupeScore": 1})
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert ("HistorySetParameter", "DupeAlive=100", [502]) in nzbget.edits
+    assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
