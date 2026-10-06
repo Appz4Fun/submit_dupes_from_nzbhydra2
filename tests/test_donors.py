@@ -1,3 +1,5 @@
+import urllib.request
+import http.client
 import base64
 import json
 import logging
@@ -419,6 +421,26 @@ def test_failed_fetch_falls_back_to_another_listing_of_the_same_posting(proxy, n
     append(proxy, primary())
     (d,) = donors(nzbget)
     assert base64.b64decode(d["params"][1]) == release(TITLE, prefix="r")
+
+
+def test_a_truncated_reply_from_one_indexer_does_not_abort_the_search(proxy, nzbget, hydra, caplog, monkeypatch):
+    # a reply cut short raises http.client.IncompleteRead, which is not an OSError: it used to abort the whole
+    # discovery (no donor added) and, as a bare traceback, could carry the apikey into the log
+    caplog.set_level(logging.INFO)
+    hydra.add(TITLE, release(TITLE, prefix="a"), grabs=9, indexer="first")
+    hydra.add(TITLE, release(TITLE, prefix="b"), grabs=1, indexer="second", posted=time.time() - 3600)
+    real, calls = urllib.request.urlopen, []
+
+    def flaky(req, *a, **kw):
+        url = req if isinstance(req, str) else req.full_url
+        if "/getnzb/" in url and not calls:
+            calls.append(url)
+            raise http.client.IncompleteRead(b"x")
+        return real(req, *a, **kw)
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    append(proxy, primary())
+    assert calls and len(donors(nzbget)) >= 1
+    assert "Traceback" not in caplog.text
 
 
 def test_indexer_that_refused_is_not_asked_again(proxy, nzbget, hydra, caplog):

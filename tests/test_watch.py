@@ -177,6 +177,22 @@ def test_a_twin_backup_gets_its_siblings_rank_not_its_old_score(make_proxy, nzbg
     assert scores[503] < PICK - 500
 
 
+def test_a_donor_and_a_backup_that_are_equally_whole_never_tie(make_proxy, nzbget, hydra, tmp_path):
+    # rank_backups scores the client's backups and discover scores the donors: both draw from one set of
+    # scores, so two equally healthy postings must not end on the same DupeScore (a tie has no failover order)
+    pick, back, donor = release(TITLE, prefix="p"), release(TITLE, prefix="w"), release(TITLE, prefix="d")
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(back) + article_ids(donor)).config(1)
+    hydra.add(TITLE, donor)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    ranked = [v for k, v in scores.items() if k != 500]
+    assert len(ranked) >= 2 and len(set(ranked)) == len(ranked), scores
+
+
 def test_backups_of_other_keys_and_the_pick_itself_are_not_ranked(make_proxy, nzbget, hydra, tmp_path):
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="o")
     nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)

@@ -11,6 +11,7 @@ import glob
 import hashlib
 import heapq
 import itertools
+import http.client
 import json
 import logging
 import os
@@ -583,7 +584,7 @@ class Proxy:
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:
                     data = resp.read()
-            except OSError as e:
+            except (OSError, http.client.HTTPException, ValueError) as e:  # a cut-short reply or an unusable link too
                 reason, why, status = "fetch", mask(e), getattr(e, "code", None)
             else:
                 status = None
