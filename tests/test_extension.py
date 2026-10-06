@@ -176,6 +176,24 @@ def test_a_pick_that_failed_before_its_worker_ran_still_gets_donors(nzbget, hydr
     assert d["params"][6] == KEY
 
 
+def test_a_failed_pick_whose_key_already_succeeded_gets_no_donor_search(nzbget, hydra, tmp_path):
+    # live (Physical S02E04/S02E09): the failover backup had already finished, then a late worker searched the
+    # indexers and health-checked donors for a release that was done, spending the indexers' grab limits
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    _failed_pick(nzbget, tmp_path, FakeNntp(article_ids(donor)), [])
+    nzbdir = tmp_path / "nzbs"
+    pick = release(TITLE, prefix="p")
+    (nzbdir / (TITLE + ".nzb.queued")).write_bytes(pick)
+    nzbget.history_items[0].update({"NZBFilename": TITLE + ".nzb", "FileSizeLo": len(pick), "FileSizeHi": 0,
+                                    "Category": "tv"})
+    nzbget.history_items.append({"NZBID": 600, "Status": "SUCCESS/ALL", "DupeKey": KEY, "DupeScore": 1,
+                                 "NZBName": TITLE + ".b", "Name": TITLE + ".b"})
+    assert _main().main(_env(nzbget, hydra, tmp_path), ["--worker", "500"]) == 0
+    assert not nzbget.appends
+    assert not any("t=search" in q for q in hydra.queries)
+
+
 def test_a_downloaded_file_starts_a_sweep_at_most_every_15_seconds(monkeypatch, nzbget, hydra, tmp_path):
     # live (Foundation S02E01 4224): nzbget restarted 15 s after the NZB was added; systemd killed the detached
     # worker, and nothing ever searched the pick. nzbget runs the extension on every downloaded file, so use that

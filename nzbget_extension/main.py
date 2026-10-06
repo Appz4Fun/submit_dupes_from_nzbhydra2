@@ -131,6 +131,11 @@ def handle(proxy, nzbid):
         h = next((x for x in history if ndp._int(x.get("NZBID")) == nzbid), None)
         if h is not None and str(h.get("Status", "")).startswith("FAILURE"):
             proxy.rescue(path, auth, h)
+            key = str(h.get("DupeKey", "")).lower()
+            if key and any(str(x.get("DupeKey", "")).lower() == key and str(x.get("Status", "")).startswith("SUCCESS")
+                           for x in history):
+                ndp.log.info("watch: pick nzbid=%d failed, but its key already has a success: no donor search", nzbid)
+                return
             search_failed(proxy, path, auth, h)
         else:
             ndp.log.info("watch: nzbid=%d left the queue before it was searched (%s): nothing to do", nzbid,
