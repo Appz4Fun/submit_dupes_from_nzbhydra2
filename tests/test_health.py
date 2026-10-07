@@ -91,7 +91,9 @@ def test_check_many_budget_leaves_unknown():
 
 def test_alive_counts_errors_as_not_present():
     # a server erroring (e.g. transient 451) must not hide dead articles: present share of all answers
-    assert dh.Health(300, 0, 1, 299).alive == 0.0
+    assert dh.Health(300, 0, 1, 299).alive is None     # saturation: 1 miss, 299 errors -> unknown, not dead (B90)
+    assert dh.Health(300, 0, 5, 295).alive == 0.0      # >=5 definite misses -> dead even amid errors
+    assert dh.Health(10, 0, 0, 10).alive is None       # every answer an error -> unknown, never 0%
     assert dh.Health(300, 150, 0, 150).alive == 0.5
     assert dh.Health(300, 10, 0, 0).alive == 1.0      # 290 unanswered (budget): judged on the 10 answers
     assert dh.Health(300, 0, 2, 2).alive is None      # too few answers

@@ -81,8 +81,15 @@ class Health:
         """Present share of all answered articles; None if too few answers (budget) to judge.
 
         Errors count as not present: a live article still gets a hit from some other server, while a
-        server that errors (e.g. a transient 451) would otherwise hide every dead article."""
-        return self.present / self.answered if self.answered >= MIN_KNOWN else None
+        server that errors (e.g. a transient 451) would otherwise hide every dead article. But a result
+        with nothing found and too few definite misses (every server saturated/erroring: 481, a dropped
+        connection, a non-430 code) is unknown, not 0%% dead — otherwise a connection crunch reads
+        healthy donors and picks as dead."""
+        if self.answered < MIN_KNOWN:
+            return None
+        if self.present == 0 and self.missing < MIN_KNOWN:
+            return None   # only errors answered: saturation/outage, not evidence of death
+        return self.present / self.answered
 
     def __add__(self, other):
         return Health(*(a + b for a, b in zip(vars(self).values(), vars(other).values())))
