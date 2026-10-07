@@ -193,6 +193,22 @@ def test_a_donor_and_a_backup_that_are_equally_whole_never_tie(make_proxy, nzbge
     assert len(ranked) >= 2 and len(set(ranked)) == len(ranked), scores
 
 
+def test_a_pick_whose_search_was_killed_midway_is_searched_again_after_a_restart(make_proxy, nzbget, hydra, tmp_path, monkeypatch):
+    # pick_job records the pick in the state file before discover runs: a worker killed by an nzbget restart
+    # (systemd stops the whole service group) left the pick looking handled, so no sweep ever searched it
+    pick = release(TITLE, prefix="p")
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    path, auth = "/jsonrpc", p.watch_auth()
+    queue = p.rpc_call(path, auth, "listgroups", [0])
+    assert p.pick_job(path, auth, queue[0], queue, []) is not None   # the worker starts ... and is killed here
+    import nzbget_dupe_proxy as ndp
+    monkeypatch.setattr(ndp, "SEARCH_STALE", 0)                      # the unfinished search counts as stale
+    restarted = type(p)(p.cfg)                                       # a new process reads the state file
+    again = restarted.pick_job(path, auth, queue[0], queue, [])
+    assert again is not None                                         # the unfinished search must be retried
+
+
 def test_backups_of_other_keys_and_the_pick_itself_are_not_ranked(make_proxy, nzbget, hydra, tmp_path):
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="o")
     nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)

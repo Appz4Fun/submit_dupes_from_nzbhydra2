@@ -351,6 +351,24 @@ class State:
         g["fps"][fp] = nzbid
         self.save()
 
+    def begin_search(self, key, nzbid):
+        g = self.data.get(key)
+        if g is not None:
+            g.setdefault("searching", {})[str(nzbid)] = time.time()
+            self.save()
+
+    def end_search(self, key, nzbid):
+        with self.lock:
+            g = self.data.get(key)
+            if g is not None and g.get("searching", {}).pop(str(nzbid), None) is not None:
+                self.save()
+
+    def search_unfinished(self, nzbid):
+        """True when nzbid's search began over SEARCH_STALE seconds ago and never ended: its worker died."""
+        now = time.time()
+        return any(now - g.get("searching", {}).get(str(nzbid), now) > SEARCH_STALE
+                   for k, g in self.data.items() if k != "_dead" and isinstance(g, dict))
+
 
 def _int(v):
     try:
@@ -359,6 +377,7 @@ def _int(v):
         return 0
 
 
+SEARCH_STALE = 600  # seconds after which an unfinished search (its worker was killed) may be started again
 RANK_REUSE = 120  # seconds a ranking of a key's backups is reused (every backup's nzbget event starts a worker)
 
 
@@ -616,6 +635,12 @@ class Proxy:
         return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+        try:
+            return self._discover(key, title, info, category, path, auth, nzbid, t0, base)
+        finally:
+            self.state.end_search(key, abs(nzbid))  # a killed worker never gets here: the search stays unfinished
+
+    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
         primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
         self.ctx.base = base
@@ -1121,8 +1146,11 @@ class Proxy:
         if info is None:
             return None
         if nzbid in self.state.nzbids_for(info.fingerprint):
-            log.info("watch: nzbid=%d %s was handled already (appended or searched by this proxy)", nzbid, title)
-            return None  # the same queue item again; a re-submission of the same NZB gets a new NZBID
+            if not self.state.search_unfinished(nzbid):
+                log.info("watch: nzbid=%d %s was handled already (appended or searched by this proxy)", nzbid, title)
+                return None  # the same queue item again; a re-submission of the same NZB gets a new NZBID
+            log.info("watch: nzbid=%d %s: its search never finished (the worker was killed): searching again", nzbid,
+                     title)
         if not key or score < self.cfg.primary_score:  # managed here from now on: lift it to primary_score
             key = key or "dupes:" + normalize_title(title)
             for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", str(self.cfg.primary_score)), ("GroupSetDupeMode", "SCORE")):
@@ -1134,6 +1162,7 @@ class Proxy:
                      g.get("DupeMode"))
         with self.state.lock:
             self.state.record(key, info.fingerprint, nzbid, title, touch=True)
+            self.state.begin_search(key, nzbid)
         log.info("watch: new pick nzbid=%d %s (key=%s score=%d): discovering donors%s", nzbid, title, key, score,
                  "; its NZB is one of several postings of the same size, so it is never demoted" if ambiguous
                  else "")
