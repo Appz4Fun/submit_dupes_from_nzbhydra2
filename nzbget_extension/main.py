@@ -130,6 +130,9 @@ def handle(proxy, nzbid):
     if g is None:  # failed before (or while) it was searched: its backups must still get a turn
         h = next((x for x in history if ndp._int(x.get("NZBID")) == nzbid), None)
         if h is not None and str(h.get("Status", "")).startswith("FAILURE"):
+            if ndp.fleet_ranked(h.get("DupeKey") or "", [h] + queue + history):
+                ndp.log.info("watch: nzbid=%d failed, but key was ranked by nzbget (DupeFleet set): leaving failover to nzbget", nzbid)
+                return
             proxy.rescue(path, auth, h)
             key = str(h.get("DupeKey", "")).lower()
             if key and any(str(x.get("DupeKey", "")).lower() == key and str(x.get("Status", "")).startswith("SUCCESS")

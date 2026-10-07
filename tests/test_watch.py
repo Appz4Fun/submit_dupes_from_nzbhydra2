@@ -209,6 +209,19 @@ def test_a_pick_whose_search_was_killed_midway_is_searched_again_after_a_restart
     assert again is not None                                         # the unfinished search must be retried
 
 
+def test_a_fleet_ranked_pick_is_left_to_nzbget(make_proxy, nzbget, hydra, tmp_path):
+    # nzbget's appendfleet already measured and ranked the copies and tags each with DupeFleet=<rank>; the
+    # extension must not run a second discovery/ranking for that key (it would race and tie the scores, B87)
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    item = _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    item["Parameters"] = [{"Name": "DupeFleet", "Value": "1"}]
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(10)
+    assert nzbget.appends == []                                     # no donors added
+    assert not any("t=search" in q for q in hydra.queries)          # no indexer search
+
+
 def test_backups_of_other_keys_and_the_pick_itself_are_not_ranked(make_proxy, nzbget, hydra, tmp_path):
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="o")
     nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)

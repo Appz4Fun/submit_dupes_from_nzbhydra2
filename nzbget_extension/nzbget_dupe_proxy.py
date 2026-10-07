@@ -370,6 +370,17 @@ class State:
                    for k, g in self.data.items() if k != "_dead" and isinstance(g, dict))
 
 
+def fleet_ranked(key, items):
+    """True when any item of `key` carries the DupeFleet post-processing parameter: nzbget's appendfleet
+    measured and ranked the copies itself, so the extension must not run a second discovery/ranking (B87)."""
+    k = str(key).lower()
+    for x in items:
+        if str(x.get("DupeKey", "")).lower() == k and any(
+                p.get("Name") == "DupeFleet" for p in (x.get("Parameters") or [])):
+            return True
+    return False
+
+
 def _int(v):
     try:
         return int(v)
@@ -853,7 +864,11 @@ class Proxy:
         ranked = {}  # nzbid -> (score, alive) of each backup checked
         if not servers or not key:
             return ranked
-        items = [x for x in self.rpc_call(path, auth, "history", [True]) or []
+        hist_all = self.rpc_call(path, auth, "history", [True]) or []
+        if fleet_ranked(key, hist_all):  # nzbget's appendfleet ranked these; a second ranking only races it (B87)
+            log.info("rank_backups %s: key=%s was ranked by nzbget (DupeFleet set): leaving the backups alone", title, key)
+            return ranked
+        items = [x for x in hist_all
                  if str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("NZBID")) != pick_id
                  and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
         groups, seen, twins = {}, {}, []  # twins: backups with the same NZB as one already in groups
@@ -1135,6 +1150,10 @@ class Proxy:
         Backups and nzbget's failover promotions rank below their pick and are left alone."""
         nzbid = _int(g.get("NZBID"))
         key, score, title = g.get("DupeKey") or "", _int(g.get("DupeScore")), g.get("NZBName") or ""
+        if key and fleet_ranked(key, [g] + queue + history):  # nzbget's appendfleet already ranked this key
+            log.info("watch: nzbid=%d %s: key=%s was ranked by nzbget (DupeFleet set): leaving it to nzbget", nzbid,
+                     title, key)
+            return None
         above = [x for x in queue + history if x is not g and _int(x.get("NZBID")) != nzbid
                  and x.get("Status") != "DELETED/COPY"  # a copy nzbget skipped is not a pick
                  and str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("DupeScore")) > score]
