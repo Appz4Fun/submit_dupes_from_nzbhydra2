@@ -521,7 +521,8 @@ class Proxy:
         except (ValueError, TypeError) as e:
             log.info("append %s: content is not an NZB (%s); no donor discovery", title, e)
         with self.state.lock:
-            key = params[6] or self.state.group_for(title, t0) or "dupes:" + normalize_title(title)
+            given = params[6] if isinstance(params[6], str) else ""  # a non-string DupeKey is unusable (unhashable)
+            key = given or self.state.group_for(title, t0) or "dupes:" + normalize_title(title)
             g = self.state.data.get(key)
             fresh = bool(g) and t0 - g["t"] < GROUP_WINDOW
             old = info and fresh and self.state.sent(key, info.fingerprint)

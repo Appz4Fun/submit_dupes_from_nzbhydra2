@@ -50,3 +50,13 @@ def test_disabled_is_pure_passthrough(make_proxy, nzbget, hydra):
     assert nzbget.requests[-1].body == body
     assert len(nzbget.appends) == 1
     assert hydra.queries == []
+
+
+def test_append_with_non_string_dupekey_does_not_crash(proxy, nzbget):
+    # a crafted append whose DupeKey param is a structured (non-string) value must not crash
+    # the handler — the proxy derives its own key and still forwards the append to nzbget.
+    body = append_body(nzb=release("Show.S01E01.2160p.ATVP.WEB-DL-GRP"),
+                       title="Show.S01E01.2160p.ATVP.WEB-DL-GRP", dupekey=[1, 2])
+    status, _, _ = post(proxy.url + "/jsonrpc", body, auth=("admin", "pw"))
+    assert status == 200
+    assert any(r.path.endswith("/jsonrpc") and b'"append"' in r.body for r in nzbget.requests)
