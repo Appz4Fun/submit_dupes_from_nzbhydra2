@@ -5,6 +5,7 @@ import json
 import logging
 import time
 
+import nzbget_dupe_proxy as ndp
 from tests.fakes import append_body, basic, make_nzb, nzb_total, post, release
 
 TITLE = "Show.S01E01.1080p.WEB.H264-GRP"
@@ -488,3 +489,23 @@ def test_indexer_refusal_is_remembered_by_the_next_process(make_proxy, nzbget, h
     append(make_proxy(), primary())
     second = make_proxy()                                                # same state dir, fresh process state
     assert second.refused.get("capped", 0) > time.time()
+
+
+def test_fetch_rejects_oversized_indexer_response(proxy, monkeypatch):
+    # an indexer returning a huge response must be rejected ("too-big"), not read unbounded into memory.
+    monkeypatch.setattr(ndp, "MAX_NZB_BYTES", 100)
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n=-1):
+            return b"X" * (n if n and n > 0 else 500)
+
+    monkeypatch.setattr(ndp.urllib.request, "urlopen", lambda *a, **k: FakeResp())
+    r = ndp.Result("t", "http://idx/x", 1000, 0, 0.0, "idx")
+    reason, data, info, status = proxy._fetch(r, time.time() + 30, 0)
+    assert reason == "too-big", reason

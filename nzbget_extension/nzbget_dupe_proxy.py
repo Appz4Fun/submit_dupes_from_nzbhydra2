@@ -41,6 +41,7 @@ GROUP_WINDOW = 600        # s: appends of the same release within this window sh
 STATE_TTL = 30 * 86400   # s: forget groups after this
 DEAD_TTL = 3 * 86400     # s: remember postings found dead (taken-down articles do not come back)
 FETCH_RETRY_DELAY = 2.0  # s before re-fetching an NZB after an indexer error / non-NZB reply
+MAX_NZB_BYTES = 64 * 1024 * 1024  # cap a fetched NZB: one posting's NZB is a few MB, so a huge reply is junk/hostile
 SEARCH_PAGE, SEARCH_PAGES = 100, 5  # Hydra results per request, and pages read when a query fills them
 WATCH_STATUSES = ("QUEUED", "PAUSED", "DOWNLOADING", "FETCHING")  # not yet past download
 RELIST_WINDOW = 120.0     # s: listings of one size posted this close together are one posting on several indexers
@@ -645,15 +646,18 @@ class Proxy:
             timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:
-                    data = resp.read()
+                    data = resp.read(MAX_NZB_BYTES + 1)  # bounded: never buffer a huge/hostile reply into memory
             except (OSError, http.client.HTTPException, ValueError) as e:  # a cut-short reply or an unusable link too
                 reason, why, status = "fetch", mask(e), getattr(e, "code", None)
             else:
                 status = None
-                try:
-                    return "ok", data, parse_nzb(data), None
-                except ValueError:
-                    reason, why = "parse", "not an NZB: %r" % mask(data[:160].decode("utf-8", "replace"))
+                if len(data) > MAX_NZB_BYTES:
+                    reason, why = "too-big", "reply over %d MiB" % (MAX_NZB_BYTES >> 20)
+                else:
+                    try:
+                        return "ok", data, parse_nzb(data), None
+                    except ValueError:
+                        reason, why = "parse", "not an NZB: %r" % mask(data[:160].decode("utf-8", "replace"))
             log.info("donor %s failed %s (%s), attempt %d: %s", reason, r.title, r.indexer, attempt + 1, why)
             if attempt < retries and time.time() + FETCH_RETRY_DELAY < deadline:
                 time.sleep(FETCH_RETRY_DELAY)
