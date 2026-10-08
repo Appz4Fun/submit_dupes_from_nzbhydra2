@@ -58,6 +58,7 @@ RES_RE = re.compile(r"^(\d{3,4}p|4k|uhd)$")
 @dataclass
 class Config:
     listen_port: int = 6790
+    listen_host: str = "0.0.0.0"  # set LISTEN_HOST=127.0.0.1 to keep the proxy off the network
     nzbget_url: str = "http://127.0.0.1:6789"
     hydra_url: str = ""
     hydra_apikey: str = ""
@@ -1256,7 +1257,8 @@ class Proxy:
         """Integer result of an nzbget JSON-RPC call (NZBID for append), 0 on error."""
         return _int(self.rpc_call(path, auth, method, params))
 
-    def start(self, host="0.0.0.0"):
+    def start(self, host=None):
+        host = self.cfg.listen_host if host is None else host
         handler = type("BoundHandler", (Handler,), {"proxy": self})
         self.server = ThreadingHTTPServer((host, self.cfg.listen_port), handler)  # daemon_threads by default
         self.url = "http://%s:%d" % (host, self.server.server_address[1])

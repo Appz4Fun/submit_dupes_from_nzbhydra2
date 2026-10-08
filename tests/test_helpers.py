@@ -197,3 +197,10 @@ def test_kept_nzb_sketch_is_cached(tmp_path, monkeypatch):
     monkeypatch.setattr(ndp, "parse_nzb", lambda d: calls.append(1) or real(d))
     assert ndp.kept_sketch(str(f)) == ndp.kept_sketch(str(f))
     assert len(calls) == 1
+
+
+def test_config_listen_host_option():
+    # a LISTEN_HOST knob lets the user restrict the proxy's bind (it listens on 0.0.0.0 by default);
+    # the default preserves the current behaviour.
+    assert ndp.Config.from_env({}).listen_host == "0.0.0.0"
+    assert ndp.Config.from_env({"LISTEN_HOST": "127.0.0.1"}).listen_host == "127.0.0.1"
