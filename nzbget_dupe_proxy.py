@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -462,12 +463,25 @@ def rpc_result(status, body):
 class Handler(BaseHTTPRequestHandler):
     proxy = None  # set by Proxy.start
     protocol_version = "HTTP/1.1"
+    timeout = 120  # bound a slow or short body against a (lying) Content-Length so a read can't hang the worker
 
     def log_message(self, fmt, *args):
         log.debug(mask(fmt % args))
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length < 0:
+                raise ValueError("negative Content-Length")
+        except ValueError:  # a malformed Content-Length is a bad request, not a crash
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        try:
+            body = self.rfile.read(length)
+        except (socket.timeout, OSError):  # incomplete/slow body: free the worker instead of hanging
+            return
         intercept = self.proxy.cfg.enabled and self.command == "POST" and self.path.endswith("/jsonrpc")
         reply = self.proxy.handle_append(self.path, body, self.headers) if intercept else None
         status, body, ctype = reply or self.proxy.forward(self.path, body, self.headers, self.command)

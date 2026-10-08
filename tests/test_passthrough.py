@@ -1,5 +1,6 @@
 import json
 
+import nzbget_dupe_proxy as ndp
 from tests.fakes import append_body, basic, post, release
 
 
@@ -60,3 +61,24 @@ def test_append_with_non_string_dupekey_does_not_crash(proxy, nzbget):
     status, _, _ = post(proxy.url + "/jsonrpc", body, auth=("admin", "pw"))
     assert status == 200
     assert any(r.path.endswith("/jsonrpc") and b'"append"' in r.body for r in nzbget.requests)
+
+
+def test_malformed_content_length_returns_400_not_dropped(proxy):
+    # a non-numeric Content-Length must not crash do_POST (int() ValueError) and drop the
+    # connection with no response; it should get a graceful 400.
+    import socket as _socket
+    import urllib.parse as _up
+    u = _up.urlparse(proxy.url)
+    s = _socket.socket(); s.settimeout(5); s.connect((u.hostname, u.port))
+    s.sendall(b"POST /jsonrpc HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\nConnection: close\r\n\r\n{}")
+    try:
+        resp = s.recv(100)
+    finally:
+        s.close()
+    assert resp.startswith(b"HTTP/1.1 400"), resp[:40]
+
+
+def test_handler_bounds_body_read_with_a_timeout():
+    # a lying Content-Length (huge value, short body) must not hang the worker thread forever:
+    # the request socket needs a finite timeout so the read gives up.
+    assert isinstance(ndp.Handler.timeout, (int, float)) and 0 < ndp.Handler.timeout <= 300
