@@ -47,8 +47,9 @@ INDEXER_COOLDOWN = 1800.0  # s an indexer is not asked for NZBs after it refused
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
 EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
                     r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
-JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv\w*|buymore|"
-                     r"chamele0n|sample|repost))+$", re.I)
+JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv[a-z0-9]*|buymore|"
+                     r"chamele0n|sample|repost))+$", re.I)  # rakuv[a-z0-9]* not rakuv\w*: \w absorbs the "_"
+
 MARKER_RE = re.compile(r"^(s\d{1,3}e\d{1,4}|(19|20)\d\d)$")      # episode / year: must match
 RES_RE = re.compile(r"^(\d{3,4}p|4k|uhd)$")
 

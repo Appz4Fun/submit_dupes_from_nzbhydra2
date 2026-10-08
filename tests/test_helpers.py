@@ -22,6 +22,26 @@ def test_state_load_keeps_valid_entries(tmp_path):
     assert "k" in s.data
 
 
+def test_clean_name_no_redos_on_adversarial_junk_suffix():
+    # JUNK_RE's rakuv\w* overlaps the "_" separator: "rakuv_rakuv_..." + a non-matching tail
+    # triggered catastrophic backtracking (seconds to minutes) on untrusted indexer titles.
+    import signal
+
+    evil = "Show.S01E01.rakuv" + "_rakuv" * 40 + "!"
+
+    def _timeout(*_):
+        raise TimeoutError("clean_name took too long — ReDoS")
+
+    old = signal.signal(signal.SIGALRM, _timeout)
+    signal.setitimer(signal.ITIMER_REAL, 2.0)
+    try:
+        result = ndp.clean_name(evil)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    assert isinstance(result, str) and result
+
+
 def _nzb_with_segments(segment_ids):
     """Raw NZB whose single file has one segment per entry in segment_ids (text inserted verbatim)."""
     segs = "".join('<segment bytes="100" number="%d">%s</segment>' % (n + 1, t) for n, t in enumerate(segment_ids))
