@@ -1,7 +1,32 @@
 import pytest
 
-from nzbget_dupe_proxy import mask, normalize_title, parse_nzb, readable, same_release, short_query
+from nzbget_dupe_proxy import mask, normalize_title, parse_nzb, readable, same_posting, same_release, short_query
 from tests.fakes import make_nzb
+
+
+def _nzb_with_segments(segment_ids):
+    """Raw NZB whose single file has one segment per entry in segment_ids (text inserted verbatim)."""
+    segs = "".join('<segment bytes="100" number="%d">%s</segment>' % (n + 1, t) for n, t in enumerate(segment_ids))
+    return ('<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">'
+            '<file poster="p@x" subject="&quot;a.mkv&quot;"><groups><group>a.b</group></groups>'
+            '<segments>%s</segments></file></nzb>' % segs).encode()
+
+
+def test_parse_nzb_skips_empty_and_whitespace_segment_ids():
+    i = parse_nzb(_nzb_with_segments(["", "   ", "real@x"]))
+    assert i.message_ids == {"real@x"}
+    assert "" not in i.message_ids
+
+
+def test_parse_nzb_empty_ids_do_not_cause_false_same_posting():
+    a = parse_nzb(_nzb_with_segments(["", "aaa@x"])).message_ids
+    b = parse_nzb(_nzb_with_segments(["", "bbb@x"])).message_ids
+    assert not same_posting(a, b)  # distinct postings, shared only a blank id
+
+
+def test_parse_nzb_rejects_nzb_whose_segments_are_all_empty():
+    with pytest.raises(ValueError):
+        parse_nzb(_nzb_with_segments(["", "   "]))
 
 
 def test_normalize_title():

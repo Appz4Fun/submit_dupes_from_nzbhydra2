@@ -213,7 +213,9 @@ def parse_nzb(data):
             for seg in el.iter():
                 if seg.tag.rsplit("}", 1)[-1] == "segment":
                     sizes[name] = sizes.get(name, 0) + int(seg.get("bytes") or 0)
-                    ids.add((seg.text or "").strip())
+                    sid = (seg.text or "").strip()
+                    if sid:  # a blank message-id is unaddressable; keeping "" would falsely match postings
+                        ids.add(sid)
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
     data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
