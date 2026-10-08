@@ -993,7 +993,8 @@ class Proxy:
     def swap_if_failing(self, path, auth, title, pick_id, h, ranked):
         """A pick whose full sample shows it will fail (alive below SWAP_BELOW; nzbget's own health only counts
         failures against the whole download, so it crawls for hours first) is swapped for the wholest backup,
-        if that one is at least SWAP_BACKUP_ALIVE: the backup goes back to the queue, then the pick is deleted."""
+        if that one is at least SWAP_BACKUP_ALIVE: the backup goes back to the queue, then the pick is filed as a
+        dupe backup scored by its sample (GroupDelete would file it DELETED/MANUAL, which nzbget never fails over to)."""
         if h.alive is None or h.missing < donor_health.MIN_KNOWN or h.alive >= self.cfg.swap_below:
             return 0
         queued = self.rpc_call(path, auth, "listgroups", [0]) or []
@@ -1023,7 +1024,8 @@ class Proxy:
         if not self.rpc_call(path, auth, "editqueue", ["HistoryRedownload", "", [bid]]):
             log.warning("swap %s: could not return backup nzbid=%d", title, bid)
             return 0
-        self.rpc_call(path, auth, "editqueue", ["GroupDelete", "", [pick_id]])
+        self.set_score(path, auth, pick_id, target_score(h.alive), "DupeAlive=%d" % round(100 * h.alive))
+        self.rpc_call(path, auth, "editqueue", ["GroupDupeDelete", "", [pick_id]])
         log.info("swap %s: pick nzbid=%d sampled alive=%s will fail: swapped for backup nzbid=%d (alive=%s)",
                  title, pick_id, pct(h.alive), bid, pct(alive))
         return bid

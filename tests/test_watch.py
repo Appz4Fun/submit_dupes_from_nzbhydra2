@@ -274,8 +274,26 @@ def test_a_pick_sure_to_fail_is_swapped_for_a_whole_backup(make_proxy, nzbget, h
     p.watch_once()
     p.wait_idle(30)
     assert ("HistoryRedownload", "", [502]) in nzbget.edits
-    assert ("GroupDelete", "", [500]) in nzbget.edits
-    assert nzbget.edits.index(("HistoryRedownload", "", [502])) < nzbget.edits.index(("GroupDelete", "", [500]))
+    assert ("GroupDupeDelete", "", [500]) in nzbget.edits
+    assert nzbget.edits.index(("HistoryRedownload", "", [502])) < nzbget.edits.index(("GroupDupeDelete", "", [500]))
+
+
+def test_a_swapped_out_pick_stays_a_dupe_backup_scored_by_its_health(make_proxy, nzbget, hydra, tmp_path):
+    # live (Ted Lasso S04E05 6995): the swap GroupDelete'd the pick; nzbget filed it DELETED/MANUAL, which its
+    # failover (ReturnBestDupe takes only dupe-deleted backups) never returns, and history read as a manual delete
+    pick, whole = release(TITLE, prefix="p"), release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(whole)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert ("GroupDupeDelete", "", [500]) in nzbget.edits
+    assert not [e for e in nzbget.edits if e[0] == "GroupDelete"]
+    rescored = [i for i, e in enumerate(nzbget.edits) if e[0].endswith("SetDupeScore") and e[2] == [500]]
+    assert rescored and rescored[0] < nzbget.edits.index(("GroupDupeDelete", "", [500]))
+    scores = nzbget.final_scores()
+    assert scores[500] < scores[502]
 
 
 def test_a_mostly_whole_pick_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
@@ -286,7 +304,7 @@ def test_a_mostly_whole_pick_is_not_swapped(make_proxy, nzbget, hydra, tmp_path)
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
 
 
 def test_a_failing_pick_is_not_swapped_for_a_backup_no_better(make_proxy, nzbget, hydra, tmp_path):
@@ -297,7 +315,7 @@ def test_a_failing_pick_is_not_swapped_for_a_backup_no_better(make_proxy, nzbget
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
 
 
 def test_a_skipped_copy_scored_above_the_pick_does_not_hide_it(make_proxy, nzbget, hydra, tmp_path):
@@ -325,7 +343,7 @@ def test_a_failing_pick_is_swapped_for_a_whole_donor_found_by_the_search(make_pr
     p.wait_idle(30)
     (d,) = nzbget.appends
     assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
-    assert ("GroupDelete", "", [500]) in nzbget.edits
+    assert ("GroupDupeDelete", "", [500]) in nzbget.edits
 
 
 def test_a_pick_whose_name_has_slashes_and_quotes_is_still_found_in_nzbdir(make_proxy, nzbget, hydra, tmp_path):
@@ -370,7 +388,7 @@ def test_a_pick_already_out_of_the_queue_is_never_swapped(make_proxy, nzbget, hy
     doomed = Health(checked=20, present=1, missing=19, error=0)
     got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
     assert got == 0
-    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
 
 
 def test_a_pick_almost_downloaded_and_above_critical_health_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
@@ -383,4 +401,4 @@ def test_a_pick_almost_downloaded_and_above_critical_health_is_not_swapped(make_
     doomed = Health(checked=100, present=82, missing=18, error=0)
     got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
     assert got == 0
-    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete")]
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
