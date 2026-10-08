@@ -112,3 +112,20 @@ def test_oversized_header_line_is_handled(proxy):
     finally:
         s.close()
     assert resp != b"HANG", "handler hung on oversized header"
+
+
+def test_oversized_content_length_rejected_before_read(proxy):
+    # a body larger than the cap must be rejected on the Content-Length header (413) rather than
+    # read into memory (OOM risk on a network-exposed proxy). Send only headers, no body.
+    import socket as _s, urllib.parse as _up, time as _t
+    u = _up.urlparse(proxy.url)
+    s = _s.socket(); s.settimeout(5); s.connect((u.hostname, u.port))
+    s.sendall(b"POST /jsonrpc HTTP/1.1\r\nHost: x\r\nContent-Length: 999999999999\r\nConnection: close\r\n\r\n")
+    t0 = _t.time()
+    try:
+        resp = s.recv(100)
+    except _s.timeout:
+        resp = b"HANG"
+    finally:
+        s.close()
+    assert resp.startswith(b"HTTP/1.1 413") and (_t.time() - t0) < 3, resp[:40]

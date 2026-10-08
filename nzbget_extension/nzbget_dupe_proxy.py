@@ -461,6 +461,9 @@ def rpc_result(status, body):
         return 0
 
 
+MAX_BODY_BYTES = 512 * 1024 * 1024  # 512 MiB: far above any real appendfleet (<=50 members), bounds an upload OOM
+
+
 class Handler(BaseHTTPRequestHandler):
     proxy = None  # set by Proxy.start
     protocol_version = "HTTP/1.1"
@@ -476,6 +479,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("negative Content-Length")
         except ValueError:  # a malformed Content-Length is a bad request, not a crash
             self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if length > MAX_BODY_BYTES:  # reject on the header; never buffer a multi-GB upload (OOM)
+            self.send_response(413)
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
