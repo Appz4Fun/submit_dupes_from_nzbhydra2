@@ -82,3 +82,33 @@ def test_handler_bounds_body_read_with_a_timeout():
     # a lying Content-Length (huge value, short body) must not hang the worker thread forever:
     # the request socket needs a finite timeout so the read gives up.
     assert isinstance(ndp.Handler.timeout, (int, float)) and 0 < ndp.Handler.timeout <= 300
+
+
+def test_chunked_request_without_content_length_is_handled(proxy):
+    # a client using Transfer-Encoding: chunked (no Content-Length) must get a response, not a hang/crash.
+    import socket as _s, urllib.parse as _up
+    u = _up.urlparse(proxy.url)
+    s = _s.socket(); s.settimeout(8); s.connect((u.hostname, u.port))
+    s.sendall(b"POST /jsonrpc HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\n{}\r\n0\r\n\r\n")
+    try:
+        resp = s.recv(100)
+    except _s.timeout:
+        resp = b"HANG"
+    finally:
+        s.close()
+    assert resp and resp != b"HANG" and resp.startswith(b"HTTP/"), resp[:40]
+
+
+def test_oversized_header_line_is_handled(proxy):
+    # a very long header line must not hang/crash the handler (stdlib caps header size).
+    import socket as _s, urllib.parse as _up
+    u = _up.urlparse(proxy.url)
+    s = _s.socket(); s.settimeout(8); s.connect((u.hostname, u.port))
+    s.sendall(b"POST /jsonrpc HTTP/1.1\r\nHost: x\r\nX-Big: " + b"A" * 70000 + b"\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+    try:
+        resp = s.recv(100)
+    except _s.timeout:
+        resp = b"HANG"
+    finally:
+        s.close()
+    assert resp != b"HANG", "handler hung on oversized header"
