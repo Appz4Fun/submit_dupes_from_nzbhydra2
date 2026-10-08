@@ -301,9 +301,14 @@ class State:
         self.lock = threading.RLock()
         try:
             with open(self.path) as f:
-                self.data = json.load(f)
+                data = json.load(f)
         except (OSError, ValueError):
-            self.data = {}
+            data = {}
+        # keep only well-formed entries: valid JSON of the wrong shape (a list, or values
+        # without a numeric "t") would otherwise crash save()/group_for() later.
+        if not isinstance(data, dict):
+            data = {}
+        self.data = {k: v for k, v in data.items() if isinstance(v, dict) and isinstance(v.get("t"), (int, float))}
 
     def save(self):
         now = time.time()

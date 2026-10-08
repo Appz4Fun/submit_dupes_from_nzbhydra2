@@ -1,7 +1,25 @@
+import json
+
 import pytest
 
+import nzbget_dupe_proxy as ndp
 from nzbget_dupe_proxy import mask, normalize_title, parse_nzb, readable, same_posting, same_release, short_query
 from tests.fakes import make_nzb
+
+
+def test_state_load_tolerates_valid_json_of_wrong_shape(tmp_path):
+    # state.json that is valid JSON but not the expected dict-of-entries must not crash save()/group_for()
+    for content in ("[]", "42", '"x"', "null", '{"k": "notadict"}', '{"k": {"title": "X"}}', '{"k": {"t": "soon"}}'):
+        (tmp_path / "state.json").write_text(content)
+        s = ndp.State(str(tmp_path))
+        s.save()  # must not raise
+        assert s.group_for("Show.S01E01.2160p.ATVP.WEB-DL-GRP", 1e12) is None
+
+
+def test_state_load_keeps_valid_entries(tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps({"k": {"t": 1e12, "title": "X", "fps": {}}}))
+    s = ndp.State(str(tmp_path))
+    assert "k" in s.data
 
 
 def _nzb_with_segments(segment_ids):
