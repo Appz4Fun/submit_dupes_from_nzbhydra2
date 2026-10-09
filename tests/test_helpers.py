@@ -50,6 +50,14 @@ def _nzb_with_segments(segment_ids):
             '<segments>%s</segments></file></nzb>' % segs).encode()
 
 
+def test_parse_nzb_measures_how_much_of_each_file_is_listed():
+    # live (Puppy Place S02E08 7223): NZBIndex's NZB declared "yEnc (1/3709)" but listed segments 1..1510 only
+    full = make_nzb([("a.mkv", [100] * 20)])
+    assert parse_nzb(full).listed == 1.0
+    assert parse_nzb(full.replace(b"yEnc (1/20)", b"yEnc (1/50)")).listed == pytest.approx(0.4)
+    assert parse_nzb(_nzb_with_segments(["x@x"])).listed == 1.0  # no part count declared: taken as whole
+
+
 def test_parse_nzb_skips_empty_and_whitespace_segment_ids():
     i = parse_nzb(_nzb_with_segments(["", "   ", "real@x"]))
     assert i.message_ids == {"real@x"}

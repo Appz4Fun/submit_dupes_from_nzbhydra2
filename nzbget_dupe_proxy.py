@@ -26,7 +26,7 @@ import urllib.request
 import zlib
 from collections import Counter, namedtuple
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from xml.etree import ElementTree as ET
@@ -182,6 +182,7 @@ class NzbInfo:
     message_ids: frozenset
     meta: dict
     main_name: str = ""  # name of the largest file
+    listed: float = 1.0  # share of the files' parts the NZB lists (subjects declare "yEnc (1/N)"); 1.0 = all
 
     @property
     def fingerprint(self):
@@ -205,6 +206,7 @@ def safe_xml(data):
 def parse_nzb(data):
     """Parse NZB bytes into an NzbInfo; ValueError if malformed or empty."""
     files, sizes, ids, poster, meta = 0, {}, set(), "", {}
+    n_listed = n_declared = 0  # parts the NZB lists / parts the subjects say each file has
     for el in safe_xml(data).iter():
         tag = el.tag.rsplit("}", 1)[-1]
         if tag == "meta" and el.get("type"):
@@ -214,17 +216,31 @@ def parse_nzb(data):
             poster = poster or el.get("poster", "")
             m = re.search(r'"([^"]+)"', el.get("subject", ""))
             name = (m.group(1) if m else el.get("subject", "")).strip()
+            listed = 0
             for seg in el.iter():
                 if seg.tag.rsplit("}", 1)[-1] == "segment":
+                    listed += 1
                     sizes[name] = sizes.get(name, 0) + int(seg.get("bytes") or 0)
                     sid = (seg.text or "").strip()
                     if sid:  # a blank message-id is unaddressable; keeping "" would falsely match postings
                         ids.add(sid)
+            parts = re.search(r"\(\d+/(\d+)\)\s*$", el.get("subject", ""))  # yEnc's "(1/3709)": the file's parts
+            n_listed += listed
+            n_declared += max(listed, int(parts.group(1)) if parts else listed)
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
     data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
-                   max(data_files, key=data_files.get))
+                   max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0)
+
+
+def with_unlisted(h, listed):
+    """Health of a whole posting from a sample of the share `listed` of its parts the NZB lists: the parts it
+    never lists are as missing as a 430, so a fully present 40%-listed NZB reads 40% alive."""
+    if h is None or listed >= 1.0 or listed <= 0 or h.answered < donor_health.MIN_KNOWN:
+        return h
+    extra = round(h.answered * (1 / listed - 1))
+    return replace(h, checked=h.checked + extra, missing=h.missing + extra)
 
 
 def same_posting(a, b):
@@ -705,7 +721,7 @@ class Proxy:
         backups = threading.Thread(target=self.rank_backups, daemon=True,
                                    args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
                                          info.message_ids if nzbid > 0 else None, checked_backups,
-                                         info.total_bytes))
+                                         info.total_bytes, info.listed))
         backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -760,7 +776,8 @@ class Proxy:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
         servers = servers if verified else []
-        probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False)
+        probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False,
+                            listed={ci.fingerprint: ci.listed for _, _, ci in verified})
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
@@ -776,7 +793,9 @@ class Proxy:
         todo.update({v[2].fingerprint: (v, False) for v in live[n_fast:]})
         groups = {fp: v[2].message_ids for fp, (v, _) in todo.items()}
         groups["primary"] = info.message_ids
-        checked = self.health_iter(servers, title, groups, full=True) if servers else iter(())
+        listed = {fp: v[2].listed for fp, (v, _) in todo.items()}
+        listed["primary"] = info.listed
+        checked = self.health_iter(servers, title, groups, full=True, listed=listed) if servers else iter(())
         unchecked = ((fp, None) for fp in list(todo))  # whatever the check did not report (no servers, failure)
         for fp, h in itertools.chain(checked, unchecked):
             if fp == "primary":
@@ -841,23 +860,26 @@ class Proxy:
             log.info("health check skipped for %s: no active news servers in nzbget config", title)
         return servers
 
-    def health_iter(self, servers, title, groups, full):
-        """Yields (key, Health) per NZB as its parallel check finishes; nothing when unchecked (advisory)."""
+    def health_iter(self, servers, title, groups, full, listed=None):
+        """Yields (key, Health) per NZB as its parallel check finishes; nothing when unchecked (advisory).
+        listed: {key: NzbInfo.listed}; the parts an NZB never lists count as missing, since a sample of the
+        listed articles alone reads an NZB that lists 40% of its file as whole."""
         if not servers:
             return
         limits = donor_health.Limits(self.cfg.nzbs_to_check_concurrently, self.cfg.nntp_server_connection_per_nzb)
         try:
-            yield from donor_health.check_iter(servers, groups, self.cfg.health_percent, budget=self.cfg.health_budget,
-                                               full=full, limits=limits, body_percent=self.cfg.body_percent,
-                                               max_body=self.cfg.body_max_per_nzb,
-                                               minimum=self.cfg.health_min_articles,
-                                               maximum=self.cfg.health_max_articles)
+            for key, h in donor_health.check_iter(servers, groups, self.cfg.health_percent,
+                                                  budget=self.cfg.health_budget, full=full, limits=limits,
+                                                  body_percent=self.cfg.body_percent, max_body=self.cfg.body_max_per_nzb,
+                                                  minimum=self.cfg.health_min_articles,
+                                                  maximum=self.cfg.health_max_articles):
+                yield key, with_unlisted(h, (listed or {}).get(key, 1.0))
         except Exception as e:
             log.warning("health check failed for %s: %s", title, type(e).__name__)
 
-    def health(self, servers, title, groups, full):
+    def health(self, servers, title, groups, full, listed=None):
         """{key: Health} for all `groups` (see health_iter)."""
-        return dict(self.health_iter(servers, title, groups, full))
+        return dict(self.health_iter(servers, title, groups, full, listed))
 
     def dead(self, v, health, stats, phase):
         """Probe: dead only if nothing was found (10 articles are too few to judge a share). Full sample:
@@ -878,7 +900,8 @@ class Proxy:
         """Probe the primary; one with nothing on any server is demoted to DupeScore 1, so nzbget swaps in
         the healthiest donor as soon as one arrives. Never a partly alive one: the swap deletes what it
         downloaded, which is exactly what nzbget's repair from duplicates needs."""
-        h = self.health(servers, title, {"primary": info.message_ids}, full=False).get("primary")
+        h = self.health(servers, title, {"primary": info.message_ids}, full=False,
+                        listed={"primary": info.listed}).get("primary")
         if h is None or not donor_health.dead_probe(h) or nzbid <= 0:
             return
         self.state.mark_dead(info.fingerprint, sketch(info.message_ids))
@@ -892,7 +915,7 @@ class Proxy:
                      what)
 
     def rank_backups(self, servers, path, auth, key, title, pick_id, ranks, stats, base=0, pick_ids=None,
-                     out=None, pick_bytes=None):
+                     out=None, pick_bytes=None, pick_listed=1.0):
         """Health-check the backups nzbget already holds under `key` (the submitter's own, parked in history
         as DUPE or COPY) and set their DupeScore like a donor's: most whole first, dead ones at base+1, so
         nzbget's failover goes straight to the wholest instead of trying them in the submitter's order."""
@@ -932,10 +955,11 @@ class Proxy:
             return ranked
         log.info("health %s: checking %d backup(s) already in nzbget", title, len(groups))
         check = {i: info.message_ids for i, (_, info) in groups.items()}
+        listed = {i: info.listed for i, (_, info) in groups.items()}
         if pick_ids:  # the pick's own full sample: is it sure to fail?
-            check["pick"] = pick_ids
+            check["pick"], listed["pick"] = pick_ids, pick_listed
         pick_h, live = None, []
-        for bid, h in self.health_iter(servers, title, check, full=True):
+        for bid, h in self.health_iter(servers, title, check, full=True, listed=listed):
             if bid == "pick":
                 pick_h = h
                 continue
