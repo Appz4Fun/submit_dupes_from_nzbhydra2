@@ -4,7 +4,7 @@ import pytest
 
 import nzbget_dupe_proxy as ndp
 from nzbget_dupe_proxy import mask, normalize_title, parse_nzb, readable, same_posting, same_release, short_query
-from tests.fakes import make_nzb
+from tests.fakes import make_nzb, par2_main
 
 
 def test_state_load_tolerates_valid_json_of_wrong_shape(tmp_path):
@@ -245,3 +245,36 @@ def test_config_listen_host_option():
     # the default preserves the current behaviour.
     assert ndp.Config.from_env({}).listen_host == "0.0.0.0"
     assert ndp.Config.from_env({"LISTEN_HOST": "127.0.0.1"}).listen_host == "127.0.0.1"
+
+
+def test_par2_block_size_reads_the_main_packet():
+    assert ndp.par2_block_size(b"junk" + par2_main(15000000) + b"tail") == 15000000
+    assert ndp.par2_block_size(b"not a par2 file") is None
+
+
+def test_parse_nzb_records_par2_geometry():
+    nzb = make_nzb([("a.mkv", [768000] * 100), ("a.vol-06.par2", [10372]), ("a.vol-01.par2", [768000] * 4),
+                    ("a.vol-02.par2", [768000] * 8)], prefix="g")
+    i = parse_nzb(nzb)
+    assert i.par_index == "g-1-0@x"                     # the smallest par2 file: the index, no recovery data
+    assert sorted(i.vol_bytes) == [768000 * 4, 768000 * 8]
+    assert i.data_bytes == 768000 * 100 and i.article_bytes == 768000
+    assert parse_nzb(make_nzb([("a.mkv", [100] * 3)])).par_index == ""
+
+
+def _geometry_7896(alive):
+    """House of the Dragon S03E04 FUZEER (7896): 15 MB blocks, vols vol-01..08 per its NZB."""
+    vols = (61945741, 123871958, 479901006, 247716068, 15488562, 30979183, 495389262)
+    info = ndp.NzbInfo(10, 7234074745, frozenset(), "", frozenset({"x"}), {}, "a.mkv", 1.0,
+                       par_index="i@x", vol_bytes=vols, data_bytes=7234074745, article_bytes=739614)
+    return ndp.par_doomed(info, alive, 15000000)
+
+
+def test_par_doomed_predicts_last_nights_par_failures():
+    # live: 7896 failed par at health 98.2% (153 of 468 blocks bad, ~97 recovery blocks); a whole one is fine
+    doomed, damaged, recovery = _geometry_7896(0.985)
+    assert doomed and 100 < damaged < 160 and 85 < recovery < 105
+    assert not _geometry_7896(1.0)[0]
+    assert not _geometry_7896(0.998)[0]                # 2 of 1,000 missing: ~4% of blocks, well inside the pars
+    info = ndp.NzbInfo(1, 100, frozenset(), "", frozenset({"x"}), {}, "a.mkv")
+    assert ndp.par_doomed(info, 0.5, 15000000)[0] is False   # no recovery volumes known: no verdict

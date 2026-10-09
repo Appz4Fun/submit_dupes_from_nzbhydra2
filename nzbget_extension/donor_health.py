@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 from cyclops.verify_nzb import (AsyncNntpConnection, ServerConfig, TransientNntpError,  # noqa: E402
-                                normalize_message_id, validate_yenc_body)
+                                _decode_yenc_lines, normalize_message_id, validate_yenc_body)
 
 MIN_KNOWN = 5               # answered articles needed before judging an NZB
 SERVER_GIVE_UP = 3          # consecutive errors after which a server pauses ...
@@ -402,3 +402,53 @@ def check_many(servers, groups, percent=2.0, probe=10, budget=120.0, full=True, 
 def availability(servers, message_ids, percent=2.0):
     """Health of one NZB's articles (see check_iter)."""
     return check_many(servers, {0: message_ids}, percent)[0]
+
+
+def _yenc_data(lines):
+    """The decoded data of a yEnc article body (lines between =ybegin/=ypart and =yend), else None."""
+    data, started = [], False
+    for raw in lines:
+        line = (raw.encode("latin-1") if isinstance(raw, str) else bytes(raw)).rstrip(b"\r\n")
+        if line.startswith(b"=ybegin"):
+            started = True
+        elif line.startswith(b"=yend"):
+            break
+        elif started and not line.startswith(b"=ypart"):
+            data.append(line)
+    if not started:
+        return None
+    try:
+        return _decode_yenc_lines(data)
+    except ValueError:
+        return None
+
+
+def fetch_body(servers, message_id, timeout=30.0):
+    """One small article's decoded data (a par2 index) from the first server that has it, else None. Takes one
+    of each server's connection slots in turn, so it never exceeds a server's cap."""
+    async def one(server):
+        slots, deadline = _slots(server), asyncio.get_running_loop().time() + timeout
+        while not slots.try_take():
+            if asyncio.get_running_loop().time() > deadline:
+                return None
+            await asyncio.sleep(0.05)
+        conn = AsyncNntpConnection(server)
+        try:
+            await conn._connect_once()
+            code, _ = await conn._send_command("BODY %s" % normalize_message_id(message_id))
+            return _yenc_data(await conn._read_multiline()) if code == 222 else None
+        finally:
+            await _quit(conn)
+            slots.give_back()
+
+    async def run():
+        for server in servers:
+            try:
+                data = await asyncio.wait_for(one(server), timeout)
+            except Exception:
+                continue
+            if data:
+                return data
+        return None
+
+    return asyncio.run(run())

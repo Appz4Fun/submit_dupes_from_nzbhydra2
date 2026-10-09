@@ -207,6 +207,32 @@ def append_body(nzb=b"<nzb/>", title="Some.Release", category="", dupekey="", sc
 YENC_DATA = b"a" * 64  # (97 + 42) % 256 needs no yEnc escaping
 
 
+def yenc_encode(data, name="x.bin", line=128):
+    """A real yEnc article body (escaped critical bytes, dot-safe lines) carrying `data`."""
+    import binascii
+    out, cur = [], bytearray()
+    for c in data:
+        e = (c + 42) % 256
+        if e in (0x00, 0x0A, 0x0D, 0x3D, 0x2E, 0x09, 0x20):
+            cur += bytes((0x3D, (e + 64) % 256))
+        else:
+            cur.append(e)
+        if len(cur) >= line:
+            out.append(bytes(cur)); cur = bytearray()
+    if cur:
+        out.append(bytes(cur))
+    return (b"=ybegin line=%d size=%d name=%s\r\n" % (line, len(data), name.encode()) + b"\r\n".join(out) + b"\r\n" +
+            b"=yend size=%d crc32=%08x\r\n.\r\n" % (len(data), binascii.crc32(data) & 0xFFFFFFFF))
+
+
+def par2_main(block, nfiles=1):
+    """A par2 index file's Main packet: its slice (block) size and file count."""
+    import struct
+    body = struct.pack("<QI", block, nfiles) + b"\x00" * 16 * nfiles
+    return b"PAR2\x00PKT" + struct.pack("<Q", 64 + len(body)) + b"\x11" * 16 + b"\x22" * 16 + \
+        b"PAR 2.0\x00Main\x00\x00\x00\x00" + body
+
+
 def _yenc_body():
     import binascii
     enc = bytes((c + 42) % 256 for c in YENC_DATA)
@@ -260,7 +286,8 @@ class _NntpHandler(socketserver.StreamRequestHandler):
                 if verb == "STAT":
                     self.wfile.write(("223 0 <%s>\r\n" % mid if has else "%d no such article\r\n" % o.missing_code).encode())
                 else:
-                    self.wfile.write(b"222 0 body\r\n" + _yenc_body() if has else b"%d no such article\r\n" % o.missing_code)
+                    body = yenc_encode(o.payloads[mid]) if mid in o.payloads else _yenc_body()
+                    self.wfile.write(b"222 0 body\r\n" + body if has else b"%d no such article\r\n" % o.missing_code)
             elif cmd == "QUIT":
                 self.wfile.write(b"205 bye\r\n")
                 return
@@ -274,8 +301,10 @@ class FakeNntp:
     soft_dead: ids whose STAT says 223 but whose BODY is gone (430). missing_code: the answer for a missing
     article (some providers say 451, not 430). Tracks sessions and concurrent connections."""
 
-    def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430, drop_on_body=()):
+    def __init__(self, articles=(), password="pw", soft_dead=(), missing_code=430, drop_on_body=(), payloads=None):
         self.articles, self.password, self.soft_dead = set(articles), password, set(soft_dead)
+        self.payloads = dict(payloads or {})  # message-id -> decoded bytes its BODY carries (else filler)
+        self.articles |= set(self.payloads)
         self.missing_code, self.sessions, self.pipelined = missing_code, 0, 0
         self.drop_on_body = set(drop_on_body)  # the first BODY of these ids closes the connection
         self.stats, self.bodies, self.delay = [], [], 0.0

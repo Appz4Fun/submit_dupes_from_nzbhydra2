@@ -183,6 +183,10 @@ class NzbInfo:
     meta: dict
     main_name: str = ""  # name of the largest file
     listed: float = 1.0  # share of the files' parts the NZB lists (subjects declare "yEnc (1/N)"); 1.0 = all
+    par_index: str = ""      # first article of the smallest par2 file (the index: holds the block size)
+    vol_bytes: tuple = ()     # bytes of every other par2 file (the recovery volumes)
+    data_bytes: int = 0       # bytes of the files par2 protects (all but the par2 files)
+    article_bytes: int = 0    # median article size of those files
 
     @property
     def fingerprint(self):
@@ -207,6 +211,7 @@ def parse_nzb(data):
     """Parse NZB bytes into an NzbInfo; ValueError if malformed or empty."""
     files, sizes, ids, poster, meta = 0, {}, set(), "", {}
     n_listed = n_declared = 0  # parts the NZB lists / parts the subjects say each file has
+    par2, articles = [], []    # (bytes, first message-id) of each par2 file; article sizes of the other files
     for el in safe_xml(data).iter():
         tag = el.tag.rsplit("}", 1)[-1]
         if tag == "meta" and el.get("type"):
@@ -216,7 +221,7 @@ def parse_nzb(data):
             poster = poster or el.get("poster", "")
             m = re.search(r'"([^"]+)"', el.get("subject", ""))
             name = (m.group(1) if m else el.get("subject", "")).strip()
-            segs = []  # (number, bytes)
+            segs, first = [], None  # (number, bytes); the lowest-numbered article's message-id
             for seg in el.iter():
                 if seg.tag.rsplit("}", 1)[-1] == "segment":
                     segs.append((_int(seg.get("number")), int(seg.get("bytes") or 0)))
@@ -224,13 +229,50 @@ def parse_nzb(data):
                     sid = (seg.text or "").strip()
                     if sid:  # a blank message-id is unaddressable; keeping "" would falsely match postings
                         ids.add(sid)
+                        if first is None or segs[-1][0] < first[0]:
+                            first = (segs[-1][0], sid)
+            if re.search(r"\.par2$", name, re.I):
+                par2.append((sum(b for _, b in segs), first[1] if first else ""))
+            else:
+                articles += [b for _, b in segs]
             n_listed += len(segs)
             n_declared += truncated_parts(segs, el.get("subject", "")) or numbered_parts(segs)
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
     data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
+    par2.sort()
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
-                   max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0)
+                   max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0,
+                   par_index=par2[0][1] if par2 else "", vol_bytes=tuple(b for b, _ in par2[1:]),
+                   data_bytes=sum(articles), article_bytes=sorted(articles)[len(articles) // 2] if articles else 0)
+
+
+def par2_block_size(data):
+    """The slice (block) size in a par2 file's Main packet, or None."""
+    i = data.find(b"PAR2\x00PKT")
+    while 0 <= i and i + 72 <= len(data):
+        length = int.from_bytes(data[i + 8:i + 16], "little")
+        if data[i + 48:i + 64] == b"PAR 2.0\x00Main\x00\x00\x00\x00":
+            return int.from_bytes(data[i + 64:i + 72], "little") or None
+        i = data.find(b"PAR2\x00PKT", i + max(length, 8))
+    return None
+
+
+PAR_SWAP_BACKUP_ALIVE = 0.999  # a pick swapped on par2 grounds goes only to a backup sampled all there
+PAR_MARGIN = 1.25  # the predicted damage must exceed the recovery blocks by this much (plus 2) to call a pick doomed
+
+
+def par_doomed(info, alive, block):
+    """Will par2 fail to repair a posting sampled `alive` whole? Each missing article spoils its whole block, so
+    with independent losses a block of k articles survives with chance alive**k: damaged = data blocks *
+    (1 - alive**k), against the recovery blocks its volumes hold (bytes / (block + 68), the packet overhead).
+    (doomed, damaged, recovery); never doomed without known recovery volumes, block or article sizes."""
+    if not (block and info.vol_bytes and info.article_bytes and info.data_bytes) or alive is None:
+        return False, 0.0, 0
+    blocks = -(-info.data_bytes // block)
+    damaged = blocks * (1 - alive ** (block / info.article_bytes))
+    recovery = sum(round(b / (block * 1.02 + 68)) for b in info.vol_bytes)  # NZB bytes are yEnc (~2% larger)
+    return damaged > PAR_MARGIN * recovery + 2, damaged, recovery
 
 
 MAX_PART_NUMBER = 200000  # beyond this a segment number is not a part number (no posting has that many)
@@ -559,6 +601,7 @@ class Proxy:
         self.refused = dict(self.state.data.get("_refused", {}).get("until", {}))  # indexer -> refused until
         self.ctx = threading.local()             # per discovery: .base, added to every DupeScore sent
         self.watched, self.first_seen = set(), {}  # watcher: NZBIDs handled; NZBID -> first seen in the queue
+        self.blocks, self.block_lock = {}, threading.Lock()  # par2 index article -> its block size (or None)
 
     def _indexer_lock(self, indexer):
         with self.workers_lock:
@@ -806,7 +849,7 @@ class Proxy:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         verified.sort(key=lambda v: (dist(v[2].total_bytes), -v[0].grabs, -v[0].date))
-        servers = servers if verified else []
+        all_servers, servers = servers, servers if verified else []  # the swap still needs them for the pick
         probe = self.health(servers, title, {ci.fingerprint: ci.message_ids for _, _, ci in verified}, full=False,
                             listed={ci.fingerprint: ci.listed for _, _, ci in verified})
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
@@ -855,7 +898,7 @@ class Proxy:
             candidates = dict(checked_backups.get("ranked", {}))
             candidates.update({p.id: (p.score, p.alive, False) for p in placed.values()
                                if p.score > 1 and p.alive is not None})
-            self.swap_if_failing(path, auth, title, abs(nzbid), checked_backups["pick"], candidates)
+            self.swap_if_failing(path, auth, title, abs(nzbid), checked_backups["pick"], candidates, info, all_servers)
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
@@ -1082,13 +1125,36 @@ class Proxy:
             if x.get("Status") in ("DELETED/DUPE", "DELETED/COPY"):
                 self.rank_late_backup(path, auth, x)
 
-    def swap_if_failing(self, path, auth, title, pick_id, h, ranked):
+    def par_block(self, servers, info):
+        """The par2 block size of an NZB's index file (one small BODY), cached per index article; None if unknown."""
+        if not info.par_index or not servers:
+            return None
+        with self.block_lock:
+            if info.par_index in self.blocks:
+                return self.blocks[info.par_index]
+        data = donor_health.fetch_body(servers, info.par_index)
+        block = par2_block_size(data) if data else None
+        with self.block_lock:
+            self.blocks[info.par_index] = block
+        return block
+
+    def swap_if_failing(self, path, auth, title, pick_id, h, ranked, info=None, servers=None):
         """A pick whose full sample shows it will fail (alive below SWAP_BELOW; nzbget's own health only counts
         failures against the whole download, so it crawls for hours first) is swapped for the wholest backup,
         if that one is at least SWAP_BACKUP_ALIVE: the backup goes back to the queue, then the pick is filed as a
         dupe backup scored by its sample (GroupDelete would file it DELETED/MANUAL, which nzbget never fails over to)."""
-        if h.alive is None or h.missing < donor_health.MIN_KNOWN or h.alive >= self.cfg.swap_below:
+        if h.alive is None or h.missing < donor_health.MIN_KNOWN:
             return 0
+        need = self.cfg.swap_backup_alive
+        if h.alive >= self.cfg.swap_below:  # mostly whole, but big par2 blocks can still make it unrepairable
+            need = PAR_SWAP_BACKUP_ALIVE  # ... and then so could a backup a little less whole: only an all-there one
+            block = self.par_block(servers, info) if info is not None else None
+            doomed, damaged, recovery = par_doomed(info, h.alive, block) if block else (False, 0, 0)
+            if not doomed:
+                return 0
+            log.info("swap %s: pick nzbid=%d sampled alive=%s, but its %d MB par2 blocks put ~%d blocks out of %d "
+                     "recovery: par2 cannot repair it", title, pick_id, pct(h.alive), block // 1000000, damaged,
+                     recovery)
         queued = self.rpc_call(path, auth, "listgroups", [0]) or []
         item = next((g for g in queued if _int(g.get("NZBID")) == pick_id), None)
         if item and item.get("Status") in WATCH_STATUSES and _int(item.get("FileSizeMB")) > 0 \
@@ -1104,7 +1170,7 @@ class Proxy:
                      pick_id, pct(h.alive))
             return 0  # discovery outlasted the download: the pick is done (or parked), a swap would redownload
         best = max(((alive, bid) for bid, (_, alive, dead) in ranked.items() if not dead), default=None)
-        if best is None or best[0] < self.cfg.swap_backup_alive:
+        if best is None or best[0] < need:
             log.info("swap %s: pick nzbid=%d sampled alive=%s, will likely fail, but no backup is whole enough",
                      title, pick_id, pct(h.alive))
             return 0

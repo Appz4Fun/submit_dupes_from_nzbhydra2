@@ -2,7 +2,7 @@
 import base64
 
 import nzbget_dupe_proxy as ndp
-from tests.fakes import FakeNntp, article_ids, basic, release
+from tests.fakes import FakeNntp, article_ids, basic, make_nzb, par2_main, release
 
 TITLE = "Show.S01E01.1080p.WEB.H264-GRP"
 KEY = "tvdbid=1-S01-E01|show-s01e01"
@@ -360,6 +360,57 @@ def test_a_pick_whose_nzb_lists_only_part_of_its_files_is_swapped_for_a_whole_ba
     p.wait_idle(30)
     assert ("HistoryRedownload", "", [502]) in nzbget.edits
     assert ("GroupDupeDelete", "", [500]) in nzbget.edits
+
+
+def _big_block_pick(block_articles, recovery_blocks=2):
+    """400 data articles (every 20th gone), an index par2 and a recovery volume; blocks of `block_articles`."""
+    art = 768000
+    nzb = make_nzb([(TITLE + ".mkv", [art] * 400), (TITLE + ".vol-06.par2", [10000]),
+                    (TITLE + ".vol-01.par2", [art * block_articles] * recovery_blocks)], prefix="p")
+    ids = article_ids(nzb)
+    data_ids = [i for i in ids if i.startswith("p-0-")]
+    present = [i for n, i in enumerate(data_ids) if n % 20] + [i for i in ids if not i.startswith("p-0-")]
+    return nzb, present, {"p-1-0@x": par2_main(art * block_articles)}
+
+
+def test_a_pick_whose_damage_outruns_its_pars_is_swapped_though_mostly_whole(make_proxy, nzbget, hydra, tmp_path):
+    # live (Joker Folie a Deux 7826, House of the Dragon 7896): 93..98% of articles there, but 15..25 MB par
+    # blocks put the damage at 33..87% of blocks, far past the pars; nzbget downloaded 7..11 GB, then failed par
+    pick, present, payloads = _big_block_pick(20)       # 95% alive, 20 articles per block, 2 recovery blocks
+    whole = release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(present + article_ids(whole), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy, health_min_articles=500)
+    p.watch_once()
+    p.wait_idle(30)
+    assert ("HistoryRedownload", "", [502]) in nzbget.edits
+    assert ("GroupDupeDelete", "", [500]) in nzbget.edits
+
+
+def test_a_par_doomed_pick_is_not_swapped_for_a_backup_that_is_not_whole(make_proxy, nzbget, hydra, tmp_path):
+    # with big blocks a 97% backup is as doomed as the 95% pick: the par swap only goes to an all-there backup
+    pick, present, payloads = _big_block_pick(20)
+    most = release(TITLE, prefix="m")
+    nzbget.config_entries = FakeNntp(present + _part(most, 0.97), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, most, 502, PICK - 2, TITLE + ".m")
+    p = _watcher(make_proxy, health_min_articles=500)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
+
+
+def test_a_mostly_whole_pick_with_small_par_blocks_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
+    pick, present, payloads = _big_block_pick(1, 30)    # same 95%, one article per block: 20 bad, 30 to fix them
+    whole = release(TITLE, prefix="w")
+    nzbget.config_entries = FakeNntp(present + article_ids(whole), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy, health_min_articles=500)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
 
 
 def test_a_mostly_whole_pick_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
