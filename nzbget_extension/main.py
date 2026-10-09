@@ -140,6 +140,8 @@ def handle(proxy, nzbid):
                 ndp.log.info("watch: pick nzbid=%d failed, but its key already has a success: no donor search", nzbid)
                 return
             search_failed(proxy, path, auth, h)
+        elif h is not None and h.get("Status") in ("DELETED/DUPE", "DELETED/COPY"):
+            proxy.rank_late_backup(path, auth, h)  # a backup parked on arrival: rank it if it came after the ranking
         else:
             ndp.log.info("watch: nzbid=%d left the queue before it was searched (%s): nothing to do", nzbid,
                          h.get("Status") if h else "gone")

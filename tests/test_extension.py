@@ -274,6 +274,75 @@ def test_a_rescue_rechecks_for_a_success_after_the_slow_ranking(monkeypatch, nzb
     assert not [e for e in nzbget.edits if e[0] == "HistoryRedownload"]
 
 
+def _parked(nzbget, tmp_path, prefix, bid, score):
+    """A submitter's backup parked in history as a dupe, its NZB in NzbDir."""
+    nzb, name = release(TITLE, prefix=prefix), "%s.%s" % (TITLE, prefix)
+    (tmp_path / "nzbs" / (name + ".nzb.queued")).write_bytes(nzb)
+    nzbget.history_items.append({"NZBID": bid, "Status": "DELETED/DUPE", "DupeKey": KEY, "DupeScore": score,
+                                 "NZBName": name, "Name": name, "NZBFilename": name + ".nzb",
+                                 "FileSizeLo": len(nzb), "FileSizeHi": 0})
+
+
+def test_a_backup_that_lands_after_its_key_was_ranked_gets_ranked_too(nzbget, hydra, tmp_path):
+    # live (Ted Lasso S04E03 7132): the pick's worker ranked the one backup there after the settle time; three
+    # more landed seconds later, their own workers found them parked in history ("nothing to do"), and they
+    # kept the submitter's scores just under the pick, above every ranked backup and donor
+    import nzbget_dupe_proxy as ndp
+    pick_score = 23859118
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="p")) + article_ids(release(TITLE, prefix="w"))
+                    + article_ids(release(TITLE, prefix="x")))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"), score=pick_score)
+    nzbget.config_entries = nntp.config(1) + nzbget.config_entries
+    _parked(nzbget, tmp_path, "w", 501, pick_score - 1)
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0
+    _parked(nzbget, tmp_path, "x", 502, pick_score - 2)   # lands after the pick's worker ranked the key
+    assert m.main(env, ["--worker", "502"]) == 0
+    base = ndp.score_base(pick_score)
+    assert base + 1 < nzbget.final_scores().get(502, pick_score - 2) <= base + 90
+
+
+def test_a_late_backup_whose_nzb_is_unreadable_gets_ranked_despite_a_fresh_ranking(nzbget, hydra, tmp_path):
+    # the key's ranking is seconds old and covers the same readable backups, so it is reused; the late backup
+    # whose NZB can't be read must still leave the slot just under the pick
+    import nzbget_dupe_proxy as ndp
+    pick_score = 23859118
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="p")) + article_ids(release(TITLE, prefix="w")))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"), score=pick_score)
+    nzbget.config_entries = nntp.config(1) + nzbget.config_entries
+    _parked(nzbget, tmp_path, "w", 501, pick_score - 1)
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0
+    _parked(nzbget, tmp_path, "x", 502, pick_score - 2)
+    (tmp_path / "nzbs" / (TITLE + ".x.nzb.queued")).unlink()
+    assert m.main(env, ["--worker", "502"]) == 0
+    base = ndp.score_base(pick_score)
+    assert base + 1 < nzbget.final_scores().get(502, pick_score - 2) <= base + 90
+
+
+def test_a_donor_parked_after_the_ranking_does_not_start_another_ranking(nzbget, hydra, tmp_path):
+    # donors this proxy appended land parked in history too, each with its own NZB_ADDED: they are ranked as
+    # donors already, so their workers must not health-check the whole key again
+    pick_score = 23859118
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="p")) + article_ids(release(TITLE, prefix="w"))
+                    + article_ids(donor))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"), score=pick_score)
+    nzbget.config_entries = nntp.config(1) + nzbget.config_entries
+    _parked(nzbget, tmp_path, "w", 501, pick_score - 1)
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0
+    (d,) = nzbget.appends
+    (tmp_path / "nzbs" / (TITLE + ".r.nzb.queued")).write_bytes(donor)  # nzbget keeps its NZB like any other
+    nzbget.history_items.append({"NZBID": d["id"], "Status": "DELETED/DUPE", "DupeKey": KEY,
+                                 "DupeScore": d["params"][7], "NZBName": TITLE + ".r", "Name": TITLE + ".r",
+                                 "NZBFilename": TITLE + ".r.nzb", "FileSizeLo": len(donor), "FileSizeHi": 0})
+    before = len(nzbget.edits)
+    assert m.main(env, ["--worker", str(d["id"])]) == 0
+    assert not [e for e in nzbget.edits[before:] if e[0].endswith("SetDupeScore")]  # its donor score stands
+
+
 def test_a_second_worker_reuses_a_fresh_ranking_of_the_same_backups(nzbget, hydra, tmp_path):
     # live (Las Azules S02E06): every nzbget event for each backup started a worker that health-checked the same
     # backups again (four times in six minutes), tying up the news-server connections and delaying the donors

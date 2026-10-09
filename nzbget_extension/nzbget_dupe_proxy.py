@@ -923,7 +923,8 @@ class Proxy:
             return ranked
         cached = self.state.data.get(key, {}).get("ranked") or {}
         if (not pick_ids and cached and time.time() - cached.get("t", 0) < RANK_REUSE
-                and set(cached.get("items", {})) == {str(i) for i in groups}):
+                and set(cached.get("items", {})) == {str(i) for i in groups}
+                and {_int(x.get("NZBID")) for x in unknown} <= set(cached.get("unknown", []))):
             for bid, (score, alive, dead) in cached["items"].items():  # same backups, ranked a moment ago
                 ranked[int(bid)] = (score, alive, dead)
             log.info("health %s: reusing the ranking of %d backup(s) from %d s ago", title, len(groups),
@@ -993,16 +994,32 @@ class Proxy:
                 stats["backup-ranked"] += 1
                 log.info("ranked backup nzbid=%d %s: same NZB as nzbid=%d, score %d -> %d", tid,
                          x.get("NZBName") or x.get("Name"), sibling, _int(x.get("DupeScore")), score + base)
-        if ranked:
+        if ranked or unknown:
             with self.state.lock:
                 g = self.state.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
-                g["ranked"] = {"t": time.time(), "items": {str(b): list(v) for b, v in ranked.items()}}
+                g["ranked"] = {"t": time.time(), "items": {str(b): list(v) for b, v in ranked.items()},
+                               "unknown": [_int(x.get("NZBID")) for x in unknown], "base": base, "pick": pick_id}
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
             out.update(ranked=ranked, pick=pick_h)
         elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
         return ranked
+
+    def rank_late_backup(self, path, auth, backup):
+        """A submitter's backup that landed after its key was ranked (the pick's settle time ran out first) still
+        holds its own score, just under the pick and above every ranked backup: rank the key's backups again."""
+        key, bid = backup.get("DupeKey") or "", _int(backup.get("NZBID"))
+        with self.state.lock:
+            g = self.state.data.get(key) or {}
+            r, ours = dict(g.get("ranked") or {}), set(g.get("fps", {}).values())
+        if (not key or "base" not in r or str(bid) in r.get("items", {}) or bid in r.get("unknown", [])
+                or bid in ours):
+            return {}  # not a key ranked here, a backup in that ranking, or a donor (or pick) of this proxy's
+        title = backup.get("NZBName") or backup.get("Name") or ""
+        log.info("rank %s: backup nzbid=%d landed after key=%s was ranked: ranking its backups again", title, bid, key)
+        servers = self.news_servers(self.rpc_call(path, auth, "config", []) or [], title)
+        return self.rank_backups(servers, path, auth, key, title, r.get("pick", 0), Ranks(), Counter(), r["base"])
 
     def swap_if_failing(self, path, auth, title, pick_id, h, ranked):
         """A pick whose full sample shows it will fail (alive below SWAP_BELOW; nzbget's own health only counts
