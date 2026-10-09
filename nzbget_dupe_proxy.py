@@ -998,7 +998,8 @@ class Proxy:
             with self.state.lock:
                 g = self.state.data.setdefault(key, {"t": time.time(), "title": title, "fps": {}})
                 g["ranked"] = {"t": time.time(), "items": {str(b): list(v) for b, v in ranked.items()},
-                               "unknown": [_int(x.get("NZBID")) for x in unknown], "base": base, "pick": pick_id}
+                               "unknown": [_int(x.get("NZBID")) for x in unknown], "base": base, "pick": pick_id,
+                               "seen": [_int(x.get("NZBID")) for x in items]}  # every backup this ranking covered
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
             out.update(ranked=ranked, pick=pick_h)
@@ -1013,13 +1014,18 @@ class Proxy:
         with self.state.lock:
             g = self.state.data.get(key) or {}
             r, ours = dict(g.get("ranked") or {}), set(g.get("fps", {}).values())
-        if (not key or "base" not in r or str(bid) in r.get("items", {}) or bid in r.get("unknown", [])
-                or bid in ours):
-            return {}  # not a key ranked here, a backup in that ranking, or a donor (or pick) of this proxy's
+        if not key or "base" not in r or bid in r.get("seen", []) or bid in ours:
+            return {}  # not a key ranked here, a backup that ranking covered, or a donor (or pick) of this proxy's
         title = backup.get("NZBName") or backup.get("Name") or ""
         log.info("rank %s: backup nzbid=%d landed after key=%s was ranked: ranking its backups again", title, bid, key)
         servers = self.news_servers(self.rpc_call(path, auth, "config", []) or [], title)
         return self.rank_backups(servers, path, auth, key, title, r.get("pick", 0), Ranks(), Counter(), r["base"])
+
+    def rank_late_backups(self, path, auth):
+        """Recovery: late backups whose own workers an nzbget restart killed (nzbget never repeats NZB_ADDED)."""
+        for x in self.rpc_call(path, auth, "history", [True]) or []:
+            if x.get("Status") in ("DELETED/DUPE", "DELETED/COPY"):
+                self.rank_late_backup(path, auth, x)
 
     def swap_if_failing(self, path, auth, title, pick_id, h, ranked):
         """A pick whose full sample shows it will fail (alive below SWAP_BELOW; nzbget's own health only counts

@@ -117,6 +117,7 @@ def sweep(env):
             time.sleep(cfg.watch_settle)  # ... the submitter's own backups land first
             proxy.watch_once()
             proxy.wait_idle(3600)
+            proxy.rank_late_backups("/jsonrpc", proxy.watch_auth())  # ... and backups whose workers died too
         finally:
             log.removeHandler(handler)
     return 0

@@ -320,6 +320,24 @@ def test_a_late_backup_whose_nzb_is_unreadable_gets_ranked_despite_a_fresh_ranki
     assert base + 1 < nzbget.final_scores().get(502, pick_score - 2) <= base + 90
 
 
+def test_sweep_ranks_a_late_backup_whose_worker_died(nzbget, hydra, tmp_path):
+    # live (Ted Lasso S04E04 7157/7158): the late backups' workers waited on the lock behind the pick's worker and
+    # an nzbget restart killed them; nzbget never repeats NZB_ADDED, so the sweep has to rank them
+    import nzbget_dupe_proxy as ndp
+    pick_score = 23859118
+    nntp = FakeNntp(article_ids(release(TITLE, prefix="p")) + article_ids(release(TITLE, prefix="w"))
+                    + article_ids(release(TITLE, prefix="x")))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"), score=pick_score)
+    nzbget.config_entries = nntp.config(1) + nzbget.config_entries
+    _parked(nzbget, tmp_path, "w", 501, pick_score - 1)
+    m, env = _main(), _env(nzbget, hydra, tmp_path)
+    assert m.main(env, ["--worker", "500"]) == 0
+    _parked(nzbget, tmp_path, "x", 502, pick_score - 2)   # its worker never ran
+    assert m.main(env, ["--sweep"]) == 0
+    base = ndp.score_base(pick_score)
+    assert base + 1 < nzbget.final_scores().get(502, pick_score - 2) <= base + 90
+
+
 def test_a_donor_parked_after_the_ranking_does_not_start_another_ranking(nzbget, hydra, tmp_path):
     # donors this proxy appended land parked in history too, each with its own NZB_ADDED: they are ranked as
     # donors already, so their workers must not health-check the whole key again
