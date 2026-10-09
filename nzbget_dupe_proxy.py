@@ -225,12 +225,25 @@ def parse_nzb(data):
                     if sid:  # a blank message-id is unaddressable; keeping "" would falsely match postings
                         ids.add(sid)
             n_listed += len(segs)
-            n_declared += truncated_parts(segs, el.get("subject", "")) or len(segs)
+            n_declared += truncated_parts(segs, el.get("subject", "")) or numbered_parts(segs)
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
     data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
                    max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0)
+
+
+MAX_PART_NUMBER = 200000  # beyond this a segment number is not a part number (no posting has that many)
+
+
+def numbered_parts(segs):
+    """Parts a file has up to its last listed one: segment numbers count from 1, so a number with no segment
+    below the highest is a part the NZB leaves out (an NZBIndex fragment lists one article numbered 9374).
+    Unusable numbering (0, negative, absurd) falls back to the listed count."""
+    nums = [n for n, _ in segs]
+    if not nums or min(nums) < 1 or max(nums) > MAX_PART_NUMBER:
+        return len(segs)
+    return max(max(nums), len(segs))
 
 
 def truncated_parts(segs, subject):

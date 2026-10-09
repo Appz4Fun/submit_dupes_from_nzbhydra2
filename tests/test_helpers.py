@@ -58,6 +58,20 @@ def test_parse_nzb_measures_how_much_of_each_file_is_listed():
     assert parse_nzb(_nzb_with_segments(["x@x"])).listed == 1.0  # no part count declared: taken as whole
 
 
+def test_parse_nzb_counts_parts_missing_below_the_last_listed_one():
+    # live (Silo S01E06 7541, NZBIndex): one file, one segment numbered 9374 of "(1/9384)"; its article could be
+    # on the servers, so a sample read 100% for an NZB lacking 9,373 of its parts
+    frag = ('<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="p@x" '
+            'subject="{a.rar} {x} yEnc (1/9384)"><groups><group>a.b</group></groups><segments>'
+            '<segment bytes="1056953" number="9374">f@x</segment></segments></file></nzb>').encode()
+    assert parse_nzb(frag).listed == pytest.approx(1 / 9374)
+    gap = make_nzb([("a.mkv", [100] * 150)]).replace(b'number="75">', b'number="0075x">')
+    gap = gap.replace(b'<segment bytes="100" number="0075x">a-0-74@x</segment>', b"")
+    assert parse_nzb(gap).listed == pytest.approx(149 / 150)    # one inner part missing
+    odd = make_nzb([("a.mkv", [100] * 3)]).replace(b'number="3"', b'number="0"')
+    assert parse_nzb(odd).listed == 1.0                          # unusable numbering: not judged
+
+
 def test_parse_nzb_does_not_trust_padded_part_counts():
     # live (NTb, FLUX, TEPES obfuscated postings): every rar listed ~137 parts while subjects declared 139..165,
     # and a one-segment par2 declared (1/26); the releases downloaded fine, the counts are padding
