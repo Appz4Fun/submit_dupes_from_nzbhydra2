@@ -908,16 +908,18 @@ class Proxy:
                  if str(x.get("DupeKey", "")).lower() == key.lower() and _int(x.get("NZBID")) != pick_id
                  and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
         groups, seen, twins = {}, {}, []  # twins: backups with the same NZB as one already in groups
+        unknown = []  # backups whose health stays unknown (NZB unreadable, or no server answered)
         for x in items:
             info, _ = self.queued_nzb(path, auth, x)
             if info is None:
+                unknown.append(x)
                 continue
             if info.fingerprint in seen:
                 twins.append((_int(x["NZBID"]), x, seen[info.fingerprint]))
                 continue
             seen[info.fingerprint] = _int(x["NZBID"])
             groups[_int(x["NZBID"])] = (x, info)
-        if not groups and not pick_ids:
+        if not groups and not pick_ids and not unknown:
             return ranked
         cached = self.state.data.get(key, {}).get("ranked") or {}
         if (not pick_ids and cached and time.time() - cached.get("t", 0) < RANK_REUSE
@@ -938,6 +940,7 @@ class Proxy:
                 continue
             x, info = groups[bid]
             if h is None or h.alive is None:
+                unknown.append(x)
                 continue
             dead = h.alive < self.cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
             if not dead:
@@ -969,6 +972,17 @@ class Proxy:
             ranked[bid] = (score, h.alive, False)
             log.info("ranked backup nzbid=%d %s: score %d -> %d, alive=%s", bid, x.get("NZBName") or x.get("Name"),
                      _int(x.get("DupeScore")), score + base, pct(h.alive))
+        # unknown health: below the checked live ones, above the dead, in the submitter's order; left at its own
+        # score (just under the pick) it would outrank every checked backup and be failed over to first
+        for x in sorted(unknown, key=lambda x: -_int(x.get("DupeScore"))):
+            score = ranks.take(None)
+            if _int(x.get("DupeScore")) <= score + base:  # already in or below the ranked band: never raise
+                ranks.release(score)
+                continue
+            if self.set_score(path, auth, _int(x.get("NZBID")), score):
+                stats["backup-ranked"] += 1
+                log.info("ranked backup nzbid=%s %s: score %d -> %d, health unknown", x.get("NZBID"),
+                         x.get("NZBName") or x.get("Name"), _int(x.get("DupeScore")), score + base)
         for tid, x, sibling in twins:  # the same posting is as healthy as its sibling: same rank, never its stale score
             if sibling not in ranked:
                 continue

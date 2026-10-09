@@ -1,6 +1,7 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
 
+import nzbget_dupe_proxy as ndp
 from tests.fakes import FakeNntp, article_ids, basic, release
 
 TITLE = "Show.S01E01.1080p.WEB.H264-GRP"
@@ -294,6 +295,39 @@ def test_a_swapped_out_pick_stays_a_dupe_backup_scored_by_its_health(make_proxy,
     assert rescored and rescored[0] < nzbget.edits.index(("GroupDupeDelete", "", [500]))
     scores = nzbget.final_scores()
     assert scores[500] < scores[502]
+
+
+def test_a_backup_of_unknown_health_is_ranked_below_a_whole_one(make_proxy, nzbget, hydra, tmp_path):
+    # live (Ted Lasso S04E06 7111): backups the check could not answer (a saturated server reads unknown, B90)
+    # kept the submitter's scores, just under the pick and above every ranked one, so nzbget's failover took
+    # an unchecked backup over one sampled 100% whole
+    pick, whole, unknown = release(TITLE, prefix="p"), release(TITLE, prefix="w"), release(TITLE, prefix="u")
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(whole), missing_code=481).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, unknown, 501, PICK - 1, TITLE + ".u")  # the submitter scored it higher
+    _backup(nzbget, tmp_path, whole, 502, PICK - 2, TITLE + ".w")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    base = ndp.score_base(PICK)
+    assert base + 1 < scores.get(501, PICK - 1) < scores[502]
+
+
+def test_a_backup_whose_nzb_is_unreadable_still_leaves_the_slot_under_the_pick(make_proxy, nzbget, hydra, tmp_path):
+    # the only backup's NZB is gone from NzbDir: its health can't be read, so it goes to the ranked band too,
+    # also when ranking without the pick's own sample (the rescue path)
+    from collections import Counter
+    pick, gone = release(TITLE, prefix="p"), release(TITLE, prefix="g")
+    nzbget.config_entries = FakeNntp(article_ids(pick)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, gone, 501, PICK - 1, TITLE + ".g")
+    (tmp_path / "nzbs" / (TITLE + ".g.nzb.queued")).unlink()
+    p = _watcher(make_proxy)
+    base = ndp.score_base(PICK)
+    servers = p.news_servers(nzbget.config_entries, TITLE)
+    p.rank_backups(servers, "/jsonrpc", p.watch_auth(), KEY, TITLE, 500, ndp.Ranks(), Counter(), base)
+    assert base + 1 < nzbget.final_scores().get(501, PICK - 1) <= base + 90
 
 
 def test_a_mostly_whole_pick_is_not_swapped(make_proxy, nzbget, hydra, tmp_path):
