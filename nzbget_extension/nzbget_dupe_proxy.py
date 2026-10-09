@@ -216,22 +216,33 @@ def parse_nzb(data):
             poster = poster or el.get("poster", "")
             m = re.search(r'"([^"]+)"', el.get("subject", ""))
             name = (m.group(1) if m else el.get("subject", "")).strip()
-            listed = 0
+            segs = []  # (number, bytes)
             for seg in el.iter():
                 if seg.tag.rsplit("}", 1)[-1] == "segment":
-                    listed += 1
+                    segs.append((_int(seg.get("number")), int(seg.get("bytes") or 0)))
                     sizes[name] = sizes.get(name, 0) + int(seg.get("bytes") or 0)
                     sid = (seg.text or "").strip()
                     if sid:  # a blank message-id is unaddressable; keeping "" would falsely match postings
                         ids.add(sid)
-            parts = re.search(r"\(\d+/(\d+)\)\s*$", el.get("subject", ""))  # yEnc's "(1/3709)": the file's parts
-            n_listed += listed
-            n_declared += max(listed, int(parts.group(1)) if parts else listed)
+            n_listed += len(segs)
+            n_declared += truncated_parts(segs, el.get("subject", "")) or len(segs)
     if not files or not ids:
         raise ValueError("NZB has no files/segments")
     data_files = {n: b for n, b in sizes.items() if not re.search(r"\.par2$|\.vol\d+[+-]\d+", n, re.I)} or sizes
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
                    max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0)
+
+
+def truncated_parts(segs, subject):
+    """The part count a file's subject declares ("yEnc (1/3709)") when its NZB plainly lists only a fraction of
+    them, else None. Obfuscated postings pad the count (rars of 137 parts declaring 139..165, a one-part par2
+    declaring 26), so it only counts when under 2/3 of it is listed and the last listed part is full-size: a
+    file that really ends there has a short last part."""
+    m = re.search(r"\(\d+/(\d+)\)\s*$", subject)
+    if not m or len(segs) < 2 or len(segs) * 3 >= int(m.group(1)) * 2:
+        return None
+    sizes = sorted(b for _, b in segs)
+    return int(m.group(1)) if max(segs)[1] >= 0.9 * sizes[len(sizes) // 2] else None
 
 
 def with_unlisted(h, listed):

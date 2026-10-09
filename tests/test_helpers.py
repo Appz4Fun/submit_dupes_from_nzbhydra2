@@ -58,6 +58,17 @@ def test_parse_nzb_measures_how_much_of_each_file_is_listed():
     assert parse_nzb(_nzb_with_segments(["x@x"])).listed == 1.0  # no part count declared: taken as whole
 
 
+def test_parse_nzb_does_not_trust_padded_part_counts():
+    # live (NTb, FLUX, TEPES obfuscated postings): every rar listed ~137 parts while subjects declared 139..165,
+    # and a one-segment par2 declared (1/26); the releases downloaded fine, the counts are padding
+    padded = make_nzb([("a.rar", [100] * 20)]).replace(b"yEnc (1/20)", b"yEnc (1/25)")
+    assert parse_nzb(padded).listed == 1.0          # 80% listed: within what padding produces
+    tiny = make_nzb([("a.par2", [100])]).replace(b"yEnc (1/1)", b"yEnc (1/26)")
+    assert parse_nzb(tiny).listed == 1.0            # one segment: nothing to judge by
+    ended = make_nzb([("a.rar", [100] * 19 + [40])]).replace(b"yEnc (1/20)", b"yEnc (1/50)")
+    assert parse_nzb(ended).listed == 1.0           # its last listed part is short: the file ends there
+
+
 def test_parse_nzb_skips_empty_and_whitespace_segment_ids():
     i = parse_nzb(_nzb_with_segments(["", "   ", "real@x"]))
     assert i.message_ids == {"real@x"}
