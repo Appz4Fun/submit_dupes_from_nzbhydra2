@@ -54,7 +54,7 @@ def test_parse_nzb_measures_how_much_of_each_file_is_listed():
     # live (Puppy Place S02E08 7223): NZBIndex's NZB declared "yEnc (1/3709)" but listed segments 1..1510 only
     full = make_nzb([("a.mkv", [100] * 20)])
     assert parse_nzb(full).listed == 1.0
-    assert parse_nzb(full.replace(b"yEnc (1/20)", b"yEnc (1/50)")).listed == pytest.approx(0.4)
+    assert parse_nzb(full.replace(b"yEnc (1/20)", b"yEnc (1/150)")).listed == pytest.approx(20 / 150)
     assert parse_nzb(_nzb_with_segments(["x@x"])).listed == 1.0  # no part count declared: taken as whole
 
 
@@ -65,8 +65,16 @@ def test_parse_nzb_does_not_trust_padded_part_counts():
     assert parse_nzb(padded).listed == 1.0          # 80% listed: within what padding produces
     tiny = make_nzb([("a.par2", [100])]).replace(b"yEnc (1/1)", b"yEnc (1/26)")
     assert parse_nzb(tiny).listed == 1.0            # one segment: nothing to judge by
-    ended = make_nzb([("a.rar", [100] * 19 + [40])]).replace(b"yEnc (1/20)", b"yEnc (1/50)")
+    ended = make_nzb([("a.rar", [100] * 19 + [40])]).replace(b"yEnc (1/20)", b"yEnc (1/150)")
     assert parse_nzb(ended).listed == 1.0           # its last listed part is short: the file ends there
+    # nzbget's corpus run (~4,900 NZBs): rar sets listing exactly 20 full parts against N 34..48 (d3g, NTb, SiQ,
+    # playWEB), and par2 volumes whose short last part is 92..99.8% of full, were still read as cut short
+    rars = make_nzb([("a.part01.rar", [768000] * 20)]).replace(b"yEnc (1/20)", b"yEnc (1/48)")
+    assert parse_nzb(rars).listed == 1.0            # 28 parts off: padding is tens, truncation thousands
+    vol = make_nzb([("a.vol07+08.par2", [768000] * 59 + [760000])]).replace(b"yEnc (1/60)", b"yEnc (1/400)")
+    assert parse_nzb(vol).listed == 1.0            # a par2's tail is never judged
+    near = make_nzb([("a.mkv", [768000] * 59 + [750000])]).replace(b"yEnc (1/60)", b"yEnc (1/400)")
+    assert parse_nzb(near).listed == 1.0           # 97.7% of the common size is a short (last) part
 
 
 def test_parse_nzb_skips_empty_and_whitespace_segment_ids():

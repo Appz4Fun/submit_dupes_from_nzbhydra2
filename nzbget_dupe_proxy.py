@@ -234,15 +234,22 @@ def parse_nzb(data):
 
 
 def truncated_parts(segs, subject):
-    """The part count a file's subject declares ("yEnc (1/3709)") when its NZB plainly lists only a fraction of
-    them, else None. Obfuscated postings pad the count (rars of 137 parts declaring 139..165, a one-part par2
-    declaring 26), so it only counts when under 2/3 of it is listed and the last listed part is full-size: a
-    file that really ends there has a short last part."""
+    """The part count a file's subject declares ("yEnc (1/3709)") when its NZB plainly stops short of it, else
+    None. Obfuscated postings pad the count by tens of parts (rars of 137 declaring 139..165, 20 full parts
+    declaring 34..48, a one-part par2 declaring 26); a cut-short listing misses thousands. So it counts only
+    when under 2/3 is listed, at least 100 parts lie past the last listed one, the file is no par2 (their short
+    last parts run 92..99.8% of full), and the last listed part is full-size: the common size when most parts
+    share one, else 99% of the median. A file that really ends there has a short last part."""
     m = re.search(r"\(\d+/(\d+)\)\s*$", subject)
-    if not m or len(segs) < 2 or len(segs) * 3 >= int(m.group(1)) * 2:
+    if not m or len(segs) < 2 or re.search(r"\.par2\b", subject, re.I):
         return None
-    sizes = sorted(b for _, b in segs)
-    return int(m.group(1)) if max(segs)[1] >= 0.9 * sizes[len(sizes) // 2] else None
+    declared, (last_no, last_bytes) = int(m.group(1)), max(segs)
+    if len(segs) * 3 >= declared * 2 or declared - last_no < 100:
+        return None
+    sizes = [b for _, b in segs]
+    common, count = Counter(sizes).most_common(1)[0]
+    full = last_bytes == common if count * 2 > len(sizes) else last_bytes >= 0.99 * sorted(sizes)[len(sizes) // 2]
+    return declared if full else None
 
 
 def with_unlisted(h, listed):

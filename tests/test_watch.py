@@ -334,7 +334,7 @@ def test_a_backup_whose_nzb_lists_only_part_of_its_files_is_not_ranked_whole(mak
     # live (Puppy Place S02E08 7223): every listed article was on the servers, so a sample read 100%, but the
     # NZB listed 1,510 of the file's 3,709 parts and the download could only fail
     pick, whole = release(TITLE, prefix="p"), release(TITLE, prefix="w")
-    partial = release(TITLE, prefix="q").replace(b"yEnc (1/20)", b"yEnc (1/50)")  # 40% of each file listed
+    partial = release(TITLE, prefix="q").replace(b"yEnc (1/20)", b"yEnc (1/150)")  # 13% of each file listed
     nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(whole) + article_ids(partial)).config(1)
     _pick(nzbget, tmp_path, pick)
     _backup(nzbget, tmp_path, partial, 501, PICK - 1, TITLE + ".q")
@@ -343,14 +343,14 @@ def test_a_backup_whose_nzb_lists_only_part_of_its_files_is_not_ranked_whole(mak
     p.watch_once()
     p.wait_idle(30)
     scores, base = nzbget.final_scores(), ndp.score_base(PICK)
-    assert scores[501] == base + 1 < scores[502]  # 40% whole is dead, like any posting mostly gone
+    assert scores[501] == base + 1 < scores[502]  # 13% whole is dead, like any posting mostly gone
 
 
 def test_a_pick_whose_nzb_lists_only_part_of_its_files_is_swapped_for_a_whole_backup(make_proxy, nzbget, hydra,
                                                                                      tmp_path):
     # live (Puppy Place S02E08 7223): the pick's 1,510 listed articles were all there, so it downloaded 1.5 GB
     # and failed on the 2,199 parts its NZB never listed
-    pick = release(TITLE, prefix="p").replace(b"yEnc (1/20)", b"yEnc (1/50)")
+    pick = release(TITLE, prefix="p").replace(b"yEnc (1/20)", b"yEnc (1/150)")
     whole = release(TITLE, prefix="w")
     nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(whole)).config(1)
     _pick(nzbget, tmp_path, pick)
