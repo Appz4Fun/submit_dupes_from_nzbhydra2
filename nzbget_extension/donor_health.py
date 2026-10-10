@@ -423,9 +423,20 @@ def _yenc_data(lines):
         return None
 
 
-def fetch_body(servers, message_id, timeout=30.0):
+def _ybegin_size(lines):
+    """The file size its =ybegin line declares (the whole file, not this part), else None."""
+    for raw in lines:
+        line = raw.encode("latin-1") if isinstance(raw, str) else bytes(raw)
+        if line.startswith(b"=ybegin"):
+            m = re.search(rb"\bsize=(\d+)", line)
+            return int(m.group(1)) if m else None
+    return None
+
+
+def fetch_body(servers, message_id, timeout=30.0, sized=False):
     """One small article's decoded data (a par2 index) from the first server that has it, else None. Takes one
-    of each server's connection slots in turn, so it never exceeds a server's cap."""
+    of each server's connection slots in turn, so it never exceeds a server's cap. sized: (data, the file size
+    its =ybegin line declares) instead, or None."""
     async def one(server):
         slots, deadline = _slots(server), asyncio.get_running_loop().time() + timeout
         while not slots.try_take():
@@ -436,7 +447,11 @@ def fetch_body(servers, message_id, timeout=30.0):
         try:
             await conn._connect_once()
             code, _ = await conn._send_command("BODY %s" % normalize_message_id(message_id))
-            return _yenc_data(await conn._read_multiline()) if code == 222 else None
+            if code != 222:
+                return None
+            lines = await conn._read_multiline()
+            data = _yenc_data(lines)
+            return (data, _ybegin_size(lines)) if sized and data else data
         finally:
             await _quit(conn)
             slots.give_back()

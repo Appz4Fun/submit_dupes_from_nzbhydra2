@@ -286,3 +286,22 @@ def test_normalize_title_drops_a_par2_subject_s_part_tag_and_dashed_volume():
     raw = "[04_10]_-_How.to.Make.a.Killing.2026.2160p.UHD.BluRay.Hybrid.REMUX.DV.HDR10+.HEVC.Atmos-TRiToN.vol03-07.par2"
     assert normalize_title(raw) == normalize_title(
         "How.to.Make.a.Killing.2026.2160p.UHD.BluRay.Hybrid.REMUX.DV.HDR10+.HEVC.Atmos-TRiToN")
+
+
+def test_inner_file_reads_the_packed_file_of_a_rar5_volume():
+    from tests.fakes import rar5_head
+    assert ndp.inner_file(rar5_head("Movie.2026.2160p-GRP.mkv", 81234567890)) == ("mkv", 81234567890)
+
+
+def test_inner_file_reads_the_packed_file_of_a_rar4_volume_past_4_gb():
+    from tests.fakes import rar4_head
+    assert ndp.inner_file(rar4_head("Movie.2026.2160p-GRP.mkv", 5000000000)) == ("mkv", 5000000000)
+
+
+def test_inner_file_of_a_bare_media_file_is_its_yenc_size():
+    assert ndp.inner_file(b"\x1aE\xdf\xa3" + b"\x00" * 60, "a8f3c9e1.mkv", 7340032123) == ("mkv", 7340032123)
+
+
+def test_inner_file_of_anything_else_is_unknown():
+    assert ndp.inner_file(b"\x00" * 64, "a8f3c9e1.bin", 1000) is None
+    assert ndp.inner_file(b"Rar!\x1a\x07\x01\x00garbage") is None

@@ -187,6 +187,7 @@ class NzbInfo:
     vol_bytes: tuple = ()     # bytes of every other par2 file (the recovery volumes)
     data_bytes: int = 0       # bytes of the files par2 protects (all but the par2 files)
     article_bytes: int = 0    # median article size of those files
+    heads: tuple = ()         # (first article, name) of the biggest non-par2 files: where inner_file() looks
 
     @property
     def fingerprint(self):
@@ -212,6 +213,7 @@ def parse_nzb(data):
     files, sizes, ids, poster, meta = 0, {}, set(), "", {}
     n_listed = n_declared = 0  # parts the NZB lists / parts the subjects say each file has
     par2, articles = [], []    # (bytes, first message-id) of each par2 file; article sizes of the other files
+    heads = []                 # (-bytes, first message-id, name) of the other files
     for el in safe_xml(data).iter():
         tag = el.tag.rsplit("}", 1)[-1]
         if tag == "meta" and el.get("type"):
@@ -235,6 +237,8 @@ def parse_nzb(data):
                 par2.append((sum(b for _, b in segs), first[1] if first else ""))
             else:
                 articles += [b for _, b in segs]
+                if first:
+                    heads.append((-sum(b for _, b in segs), first[1], name))
             n_listed += len(segs)
             n_declared += truncated_parts(segs, el.get("subject", "")) or numbered_parts(segs)
     if not files or not ids:
@@ -244,7 +248,89 @@ def parse_nzb(data):
     return NzbInfo(files, sum(sizes.values()), frozenset(n.lower() for n in sizes), poster, frozenset(ids), meta,
                    max(data_files, key=data_files.get), n_listed / n_declared if n_declared else 1.0,
                    par_index=par2[0][1] if par2 else "", vol_bytes=tuple(b for b, _ in par2[1:]),
-                   data_bytes=sum(articles), article_bytes=sorted(articles)[len(articles) // 2] if articles else 0)
+                   data_bytes=sum(articles), article_bytes=sorted(articles)[len(articles) // 2] if articles else 0,
+                   heads=tuple((sid, name) for _, sid, name in sorted(heads)[:INNER_TRIES]))
+
+
+MEDIA_RE = re.compile(r"\.(mkv|mp4|m4v|avi|ts|m2ts|wmv|mov)$", re.I)
+INNER_TRIES = 3  # files whose first article inner_file() is tried on
+
+
+def _vint(data, i):
+    """A RAR5 variable-length integer at data[i]: (value, next index); IndexError past the end."""
+    value = shift = 0
+    while True:
+        b = data[i]
+        value, i, shift = value | (b & 0x7F) << shift, i + 1, shift + 7
+        if not b & 0x80 or shift > 63:
+            return value, i
+
+
+def _rar5_file(data):
+    i = 8
+    while i < len(data):
+        size, j = _vint(data, i + 4)          # header CRC32, then the header size
+        end = j + size
+        kind, j = _vint(data, j)
+        flags, j = _vint(data, j)
+        if flags & 1:
+            _, j = _vint(data, j)             # extra area size
+        data_size, j = _vint(data, j) if flags & 2 else (0, j)
+        if kind == 2:                         # file header
+            fflags, j = _vint(data, j)
+            unpacked, j = _vint(data, j)
+            _, j = _vint(data, j)             # attributes
+            j += 4 * bool(fflags & 2) + 4 * bool(fflags & 4)  # mtime, data CRC32
+            _, j = _vint(data, j)             # compression
+            _, j = _vint(data, j)             # host OS
+            n, j = _vint(data, j)
+            name = data[j:j + n].decode("utf-8", "replace")
+            return None if fflags & 8 or len(name) < n else (name, unpacked)  # 8: unpacked size unknown
+        if kind not in (1, 3) or size == 0:  # not main/service (an encryption header hides the rest)
+            return None
+        i = end + data_size
+    return None
+
+
+def _rar4_file(data):
+    i = 7
+    while i + 7 <= len(data):
+        kind, flags, size = data[i + 2], int.from_bytes(data[i + 3:i + 5], "little"), \
+            int.from_bytes(data[i + 5:i + 7], "little")
+        if kind == 0x74:
+            unpacked = int.from_bytes(data[i + 11:i + 15], "little")
+            n = int.from_bytes(data[i + 26:i + 28], "little")
+            j = i + 32
+            if flags & 0x100:
+                unpacked |= int.from_bytes(data[j + 4:j + 8], "little") << 32
+                j += 8
+            name = data[j:j + n].decode("utf-8", "replace")
+            return (name, unpacked) if len(name) == n and n else None
+        if size < 7:
+            return None
+        i += size + (int.from_bytes(data[i + 7:i + 11], "little") if flags & 0x8000 else 0)
+    return None
+
+
+def inner_file(data, name="", total=None):
+    """(extension, bytes) of the file a posting delivers, read from the start of one of its files: the packed
+    file a RAR4/RAR5 volume holds (every volume repeats its header), or a bare media file's own size (`total`,
+    from the article's =ybegin line). None when it can't be told (7z, encrypted headers, anything else)."""
+    try:
+        if data.startswith(b"Rar!\x1a\x07\x01\x00"):
+            found = _rar5_file(data)
+        elif data.startswith(b"Rar!\x1a\x07\x00"):
+            found = _rar4_file(data)
+        elif MEDIA_RE.search(name) and total:
+            found = (name, total)
+        else:
+            return None
+    except IndexError:
+        return None
+    if not found or not found[1]:
+        return None
+    ext = found[0].rsplit(".", 1)[-1].lower() if "." in found[0] else ""
+    return ext, found[1]
 
 
 def par2_block_size(data):
@@ -359,12 +445,20 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if same_release(primary_title, r.title):
         return True
-    return lenient and bool(primary_bytes and r.size) and abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+    if not lenient:
+        return False
+    a, b = release_attrs(primary_title), release_attrs(r.title)
+    if a["title"] and all(a[k] == b[k] for k in ("title", "seasons", "episodes")) and a["year"] == b["year"]:
+        return True  # same title and episode, named otherwise: what's inside decides (lenient_ok)
+    return bool(primary_bytes and r.size) and abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
-def lenient_ok(title, info, ci):
-    """A posting found only by the lenient search is the release asked for: its files are named as it, or
-    (obfuscated) they are as many and as big (within LENIENT_BYTES) as the pick's."""
+def lenient_ok(title, info, ci, mine=None, theirs=None):
+    """A posting found only by the lenient search is the release asked for: the file inside it (`theirs`,
+    inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
+    its files are named as it, or (obfuscated) they are as many and as big (within LENIENT_BYTES) as the pick's."""
+    if mine and theirs:
+        return mine == theirs
     if readable(ci.main_name):
         return same_release(title, ci.main_name)
     return ci.files == info.files and abs(ci.total_bytes - info.total_bytes) <= LENIENT_BYTES * info.total_bytes
@@ -635,7 +729,7 @@ class Proxy:
         self.refused = dict(self.state.data.get("_refused", {}).get("until", {}))  # indexer -> refused until
         self.ctx = threading.local()             # per discovery: .base, added to every DupeScore sent
         self.watched, self.first_seen = {}, {}  # watcher: NZBID -> name it was handled under; NZBID -> first seen in the queue
-        self.blocks, self.block_lock = {}, threading.Lock()  # par2 index article -> its block size (or None)
+        self.blocks, self.inners, self.block_lock = {}, {}, threading.Lock()  # par2 index article -> its block size (or None)
 
     def _indexer_lock(self, indexer):
         with self.workers_lock:
@@ -875,11 +969,15 @@ class Proxy:
                         log.info("%s served a different NZB than it lists for %s: %d bytes / %d files, "
                                  "listed %d bytes", r.indexer, r.title, ci.total_bytes, ci.files, r.size)
                     known, sk = known_f.result(), sketch(ci.message_ids)
-                    if readable(ci.main_name) and not same_release(title, ci.main_name):
+                    named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
+                    if lenient and (named_other or not same_release(title, r.title)):
+                        if not lenient_ok(title, info, ci, self.inner(servers, info), self.inner(servers, ci)):
+                            stats["other-release"] += 1  # what's inside is not the pick's file
+                            continue
+                    elif named_other:
                         stats["other-release"] += 1
-                    elif not same_release(title, r.title) and not lenient_ok(title, info, ci):
-                        stats["other-release"] += 1  # found by size alone, and its files are not the pick's
-                    elif any(same_sketch(sk, k) for k in known):
+                        continue
+                    if any(same_sketch(sk, k) for k in known):
                         stats["in-nzbget"] += 1
                     elif self.state.is_dead(sk):
                         stats["known-dead"] += 1  # found dead on an earlier grab: no new health check
@@ -1167,6 +1265,23 @@ class Proxy:
         for x in self.rpc_call(path, auth, "history", [True]) or []:
             if x.get("Status") in ("DELETED/DUPE", "DELETED/COPY"):
                 self.rank_late_backup(path, auth, x)
+
+    def inner(self, servers, info):
+        """inner_file() of an NZB, from the first article of its biggest files (cached), or None."""
+        if not servers or not info.heads:
+            return None
+        with self.block_lock:
+            if info.heads in self.inners:
+                return self.inners[info.heads]
+        found = None
+        for sid, name in info.heads:
+            got = donor_health.fetch_body(servers, sid, sized=True)
+            found = inner_file(got[0], name, got[1]) if got else None
+            if found:
+                break
+        with self.block_lock:
+            self.inners[info.heads] = found
+        return found
 
     def par_block(self, servers, info):
         """The par2 block size of an NZB's index file (one small BODY), cached per index article; None if unknown."""

@@ -613,3 +613,54 @@ def test_a_failing_pick_never_takes_an_obfuscated_posting_of_other_files(make_pr
     p.wait_idle(30)
     assert not nzbget.appends
     assert ("GroupDupeDelete", "", [500]) not in nzbget.edits
+
+
+def _with_pars(name, prefix, par_bytes):
+    """release(name) plus a recovery volume: another posting's par2 changes the total, not the packed file."""
+    rars = [("%s.part%02d.rar" % (name, i + 1), [700000] * 20) for i in range(10)]
+    return make_nzb(rars + [(name + ".vol00+40.par2", [par_bytes] * 4)], prefix=prefix)
+
+
+def test_a_failing_pick_is_swapped_for_a_posting_of_another_size_holding_the_same_mkv(make_proxy, nzbget, hydra,
+                                                                                         tmp_path):
+    # what matters is the file inside the archive: another poster's par2 volumes make the posting 40 MB bigger,
+    # but a rar holding an .mkv of exactly the pick's size is the same release
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+
+
+def test_a_failing_pick_never_takes_a_posting_whose_mkv_differs_in_size(make_proxy, nzbget, hydra, tmp_path):
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head(TITLE + ".mkv", 13998999)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_the_inner_mkv_decides_even_when_the_posting_s_files_are_named_otherwise(make_proxy, nzbget, hydra, tmp_path):
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB-DL.DDP5.1.H.264-OTHER", prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("y.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
