@@ -351,11 +351,23 @@ def kept_sketch(path):
     return _KEPT[key]
 
 
-def candidate_ok(primary_title, primary_bytes, r, tol):
-    """Hydra result worth fetching: same release by name; size only matters if a tolerance is set."""
+def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
+    """Hydra result worth fetching: same release by name; size only matters if a tolerance is set. Lenient
+    (a pick sure to fail, no whole backup): also any listing within LENIENT_LISTED of the pick's size, whatever
+    its name (obfuscated or renamed postings); its NZB must then prove it is the same release (lenient_ok)."""
     if tol and primary_bytes and abs(r.size - primary_bytes) > tol * primary_bytes:
         return False
-    return same_release(primary_title, r.title)
+    if same_release(primary_title, r.title):
+        return True
+    return lenient and bool(primary_bytes and r.size) and abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def lenient_ok(title, info, ci):
+    """A posting found only by the lenient search is the release asked for: its files are named as it, or
+    (obfuscated) they are as many and as big (within LENIENT_BYTES) as the pick's."""
+    if readable(ci.main_name):
+        return same_release(title, ci.main_name)
+    return ci.files == info.files and abs(ci.total_bytes - info.total_bytes) <= LENIENT_BYTES * info.total_bytes
 
 
 def group_listings(results):
@@ -507,6 +519,8 @@ def _int(v):
         return 0
 
 
+LENIENT_LISTED = 0.01  # lenient search: listings this close to the pick's size are fetched, whatever their name
+LENIENT_BYTES = 0.005  # ... and an obfuscated NZB this close (with as many files) counts as the release
 RESEARCH_EMPTY = 900  # seconds after which a pick whose search added no donors is searched again
 SEARCH_STALE = 1800  # seconds after which an unfinished search (its worker was killed) may be started again
 RANK_REUSE = 120  # seconds a ranking of a key's backups is reused (every backup's nzbget event starts a worker)
@@ -792,14 +806,18 @@ class Proxy:
         return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
-        added = 0
+        added, self.ctx.unrescued = 0, False
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base)
+            if self.ctx.unrescued:  # the pick will fail and nothing whole was found by its name: look wider
+                log.info("search %s: pick will likely fail and no backup is whole: searching leniently", title)
+                self.ctx.unrescued = False
+                added += self._discover(key, title, info, category, path, auth, nzbid, time.time(), base, True)
         finally:
             self.state.searched(key, abs(nzbid), added)  # none added: searched again after RESEARCH_EMPTY
             self.state.end_search(key, abs(nzbid))  # a killed worker never gets here: the search stays unfinished
 
-    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, lenient=False):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
         primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
         self.ctx.base = base
@@ -831,7 +849,7 @@ class Proxy:
                 except Exception as e:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
             cands = sorted((r for r in results.values() if r.link and candidate_ok(
-                title, info.total_bytes, r, cfg.size_tolerance)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
+                title, info.total_bytes, r, cfg.size_tolerance, lenient)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             rank = {id(r): i for i, r in enumerate(cands)}
             # postings (each listed by one or more indexers; most grabbed listing first), best listing first,
             # then one posting of each distinct size before the rest
@@ -859,6 +877,8 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     if readable(ci.main_name) and not same_release(title, ci.main_name):
                         stats["other-release"] += 1
+                    elif not same_release(title, r.title) and not lenient_ok(title, info, ci):
+                        stats["other-release"] += 1  # found by size alone, and its files are not the pick's
                     elif any(same_sketch(sk, k) for k in known):
                         stats["in-nzbget"] += 1
                     elif self.state.is_dead(sk):
@@ -1196,6 +1216,7 @@ class Proxy:
         if best is None or best[0] < need:
             log.info("swap %s: pick nzbid=%d sampled alive=%s, will likely fail, but no backup is whole enough",
                      title, pick_id, pct(h.alive))
+            self.ctx.unrescued = True
             return 0
         alive, bid = best
         if self.cfg.dry_run:
