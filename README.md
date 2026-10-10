@@ -549,6 +549,7 @@ The proxy uses the credentials that Hydra sends for its own calls to nzbget, so 
 | `SIZE_TOLERANCE` | `0` | `0` turns the size filter off. `0.2` skips Hydra results more than 20% larger or smaller than the primary. |
 | `FAST_DONORS` | `5` | Donors added right after the probe. The rest are added one at a time after their full sample. |
 | `DEADLINE` | `60` | Seconds after the primary append for searching and downloading candidates. |
+| `WATCH_DEADLINE` | `300` | The same limit for a search the watcher starts for a pick already in nzbget's queue. |
 | `TIMEOUT` | `30` | Seconds per HTTP request to Hydra or an indexer, and per news server command. |
 
 ### Health check settings

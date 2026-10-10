@@ -539,3 +539,16 @@ def test_a_pick_renamed_after_its_search_is_searched_again_under_its_new_name(ma
     assert base64.b64decode(d["params"][1]) == donor
     assert d["params"][6] == "dupes:" + ndp.normalize_title(TITLE)
     assert ("GroupSetDupeKey", "dupes:" + ndp.normalize_title(TITLE), [500]) in nzbget.edits
+
+
+def test_a_watched_pick_gets_the_longer_watch_deadline(make_proxy, nzbget, hydra, tmp_path):
+    # live (How to Make a Killing, nzbid 8188): Hydra's search took 35 s of the 60 s DEADLINE, so all five big
+    # REMUX donor NZBs timed out; nothing waits on a watcher's search, so it gets WATCH_DEADLINE instead
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    p = _watcher(make_proxy, deadline=0.0)
+    p.watch_once()
+    p.wait_idle(20)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == donor

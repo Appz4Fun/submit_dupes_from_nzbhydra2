@@ -89,6 +89,7 @@ class Config:
     nzbget_username: str = ""     # nzbget login for the watcher (the Hydra path uses Hydra's own)
     nzbget_password: str = ""
     deadline: float = 60.0  # seconds after the primary append
+    watch_deadline: float = 300.0  # the same for a watcher's search: no client waits on it, big NZBs come slowly
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
     @classmethod
@@ -771,17 +772,18 @@ class Proxy:
                 last = (r, reason, None, None)
         return (other or last) + (stats,)
 
-    def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+    def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, deadline=None):
         try:
-            return self._discover(key, title, info, category, path, auth, nzbid, t0, base)
+            return self._discover(key, title, info, category, path, auth, nzbid, t0, base, deadline)
         finally:
             self.state.end_search(key, abs(nzbid))  # a killed worker never gets here: the search stays unfinished
 
-    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, deadline=None):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
         primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
         self.ctx.base = base
-        cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
+        cfg, stats, results = self.cfg, Counter(), {}
+        deadline = t0 + (cfg.deadline if deadline is None else deadline)
         nzbget_config = self.rpc_call(path, auth, "config", []) or []
         servers = self.news_servers(nzbget_config, title) if cfg.health_percent else []
         # the primary's own probe starts now, beside the searches: a dead primary is demoted within seconds,
@@ -1387,7 +1389,7 @@ class Proxy:
                  "; its NZB is one of several postings of the same size, so it is never demoted" if ambiguous
                  else "")
         return (key, title, info, g.get("Category") or "", path, auth, -nzbid if ambiguous else nzbid, time.time(),
-                score_base(score))
+                score_base(score), self.cfg.watch_deadline)
 
     def renamed(self, key, title):
         """True when a pick this proxy keyed from its name ("dupes:...") now shows a name its key wasn't made
