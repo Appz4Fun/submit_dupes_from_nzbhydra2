@@ -1,6 +1,8 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
 
+import pytest
+
 import nzbget_dupe_proxy as ndp
 from tests.fakes import FakeNntp, article_ids, basic, make_nzb, par2_main, release
 
@@ -568,3 +570,114 @@ def test_a_pick_whose_search_found_no_donors_is_searched_again_later(make_proxy,
     p.watch_once()
     p.wait_idle(20)
     assert len(nzbget.appends) == 1                                 # donors found: searched no more
+
+
+RENAMED = "Show S01E01 1080p WEB H264"  # an indexer's name for it: no group, so not "the same release"
+
+
+def test_a_failing_pick_with_no_whole_donor_is_swapped_for_an_obfuscated_posting_of_it(make_proxy, nzbget, hydra,
+                                                                                         tmp_path):
+    # live (How to Make a Killing, nzbid 8188): the pick sampled 50% and no posting by its name was fetched;
+    # postings of the same files that an indexer lists under another name were never looked at
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
+    hydra.add(RENAMED, other)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+
+
+def test_a_whole_pick_never_takes_an_obfuscated_posting(make_proxy, nzbget, hydra, tmp_path):
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
+    hydra.add(RENAMED, other)
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(other)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_a_failing_pick_never_takes_an_obfuscated_posting_of_other_files(make_proxy, nzbget, hydra, tmp_path):
+    # the looser search still only takes the release asked for: listed at the pick's size, but the NZB holds
+    # another set of files, so the pick fails rather than turning into something else
+    pick = release(TITLE, prefix="p")
+    other = release(TITLE, prefix="r", obfuscate=True, n_files=12, segs_per_file=17)
+    hydra.add(RENAMED, other, size=ndp.parse_nzb(pick).total_bytes)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+    assert ("GroupDupeDelete", "", [500]) not in nzbget.edits
+
+
+def _with_pars(name, prefix, par_bytes):
+    """release(name) plus a recovery volume: another posting's par2 changes the total, not the packed file."""
+    rars = [("%s.part%02d.rar" % (name, i + 1), [700000] * 20) for i in range(10)]
+    return make_nzb(rars + [(name + ".vol00+40.par2", [par_bytes] * 4)], prefix=prefix)
+
+
+def test_a_failing_pick_is_swapped_for_a_posting_of_another_size_holding_the_same_mkv(make_proxy, nzbget, hydra,
+                                                                                         tmp_path):
+    # what matters is the file inside the archive: another poster's par2 volumes make the posting 40 MB bigger,
+    # but a rar holding an .mkv of exactly the pick's size is the same release
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+
+
+def test_a_failing_pick_never_takes_a_posting_whose_mkv_differs_in_size(make_proxy, nzbget, hydra, tmp_path):
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head(TITLE + ".mkv", 13998999)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_a_posting_whose_files_name_another_group_is_never_taken_though_its_mkv_matches(make_proxy, nzbget, hydra,
+                                                                                       tmp_path):
+    # a name that says another group (or resolution, or HDR/DV format) is trusted: it is another release
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264-OTHER", prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("y.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+@pytest.mark.parametrize("listed", ["Show.S01E01.1080p.WEB.H264-OTHER", "Show.S01E01.2160p.WEB.H264-GRP",
+                                    "Show.S01E01.1080p.WEB.DV.H264-GRP"])
+def test_a_listing_naming_another_group_resolution_or_hdr_is_never_fetched(make_proxy, nzbget, hydra, tmp_path,
+                                                                           listed):
+    pick = release(TITLE, prefix="p")
+    hydra.add(listed, release(TITLE, prefix="r", obfuscate=True))
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(release(TITLE, prefix="r"))).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not hydra.fetches

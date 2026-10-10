@@ -324,3 +324,44 @@ class FakeNntp:
 def article_ids(nzb):
     import re
     return [m.decode() for m in re.findall(rb">([^<>]+@x)</segment>", nzb)]
+
+
+def _vint(n):
+    out = bytearray()
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def rar5_head(name, size):
+    """The start of a RAR5 volume: signature, main header, and the file header of `name` (`size` unpacked)."""
+    import binascii
+
+    def block(body):
+        data = _vint(len(body)) + body
+        return (binascii.crc32(data) & 0xFFFFFFFF).to_bytes(4, "little") + data
+    main = _vint(1) + _vint(0) + _vint(0)                      # type main, no flags, archive flags 0
+    n = name.encode()
+    fields = _vint(0) + _vint(size) + _vint(0x20) + _vint(0) + _vint(0) + _vint(len(n)) + n
+    filehdr = _vint(2) + _vint(0x2) + _vint(size) + fields     # type file, flag: data area (size) follows
+    return b"Rar!\x1a\x07\x01\x00" + block(main) + block(filehdr) + b"\x00" * 64
+
+
+def rar4_head(name, size):
+    """The start of a RAR4 volume: marker, archive header, and the file header of `name` (`size` unpacked)."""
+    import binascii, struct
+    n = name.encode()
+    main = struct.pack("<BHH", 0x73, 0, 13) + b"\x00" * 6
+    main = struct.pack("<H", binascii.crc32(main) & 0xFFFF) + main
+    big = size >= 1 << 32
+    flags = 0x8000 | (0x100 if big else 0)
+    hsize = 32 + (8 if big else 0) + len(n)
+    body = struct.pack("<BHHIIBIIBBHI", 0x74, flags, hsize, size & 0xFFFFFFFF, size & 0xFFFFFFFF, 2, 0, 0, 29, 0x30,
+                       len(n), 0x20)
+    if big:
+        body += struct.pack("<II", size >> 32, size >> 32)
+    body += n
+    filehdr = struct.pack("<H", binascii.crc32(body) & 0xFFFF) + body
+    return b"Rar!\x1a\x07\x00" + main + filehdr + b"\x00" * 64
