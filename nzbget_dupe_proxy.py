@@ -814,9 +814,16 @@ class Proxy:
         except Exception:  # never let a donor problem escape the worker
             log.exception("donor discovery crashed for key=%s", args[0])
 
+    def hydra_off(self):
+        """The user's kill switch: STATE_DIR/hydra.off stops every search and NZB fetch from Hydra."""
+        return os.path.exists(os.path.join(self.cfg.state_dir or ".", "hydra.off"))
+
     def hydra_search(self, params):
         """All results of one newznab query, reading further pages while a page comes back full."""
         out = []
+        if self.hydra_off():
+            log.info("hydra.off: not searching Hydra")
+            return out
         for page in range(SEARCH_PAGES):
             got = self._hydra_page(dict(params, limit=SEARCH_PAGE, offset=page * SEARCH_PAGE))
             out += got
@@ -862,6 +869,8 @@ class Proxy:
         with 403/429 or an error body, sometimes only for a moment, so a failed fetch is retried once; an indexer
         still refusing (403/429) is not asked again for INDEXER_COOLDOWN. One fetch per indexer at a time, so
         its refusal is known before the next grab."""
+        if self.hydra_off():
+            return "refused", None, None
         with self._indexer_lock(r.indexer):
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None

@@ -1,5 +1,6 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
+import os
 
 import pytest
 
@@ -716,3 +717,15 @@ def test_a_donor_whose_packed_file_matches_is_hinted_dupe_same_inner(make_proxy,
     p.wait_idle(30)
     (d,) = nzbget.appends
     assert _pp(d).get("DupeSameInner") == "1"
+
+
+def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_proxy, nzbget, hydra, tmp_path):
+    # the user's kill switch: with STATE_DIR/hydra.off present nothing is searched or fetched from Hydra
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()
+    p.watch_once()
+    p.wait_idle(20)
+    assert not hydra.queries and not hydra.fetches and not nzbget.appends
