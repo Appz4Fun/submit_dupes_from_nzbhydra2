@@ -464,6 +464,13 @@ def consistent(a_name, b_name):
     return all(not b[k] or b[k] == a[k] for k in ("group", "resolution") + EXACT)
 
 
+def same_data(a, b):
+    """Same data files, as many and as big in bytes, whatever par2 volumes each posting adds: a likely twin
+    (identical bytes are only proven by the par2 checksums, which nzbget checks)."""
+    return bool(a.data_bytes) and a.data_bytes == b.data_bytes and \
+        a.files - len(a.vol_bytes) - bool(a.par_index) == b.files - len(b.vol_bytes) - bool(b.par_index)
+
+
 def lenient_ok(title, info, ci, mine=None, theirs=None):
     """A posting found only by the lenient search is the release asked for: the file inside it (`theirs`,
     inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
@@ -807,9 +814,16 @@ class Proxy:
         except Exception:  # never let a donor problem escape the worker
             log.exception("donor discovery crashed for key=%s", args[0])
 
+    def hydra_off(self):
+        """The user's kill switch: STATE_DIR/hydra.off stops every search and NZB fetch from Hydra."""
+        return os.path.exists(os.path.join(self.cfg.state_dir or ".", "hydra.off"))
+
     def hydra_search(self, params):
         """All results of one newznab query, reading further pages while a page comes back full."""
         out = []
+        if self.hydra_off():
+            log.info("hydra.off: not searching Hydra")
+            return out
         for page in range(SEARCH_PAGES):
             got = self._hydra_page(dict(params, limit=SEARCH_PAGE, offset=page * SEARCH_PAGE))
             out += got
@@ -855,6 +869,8 @@ class Proxy:
         with 403/429 or an error body, sometimes only for a moment, so a failed fetch is retried once; an indexer
         still refusing (403/429) is not asked again for INDEXER_COOLDOWN. One fetch per indexer at a time, so
         its refusal is known before the next grab."""
+        if self.hydra_off():
+            return "refused", None, None
         with self._indexer_lock(r.indexer):
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None
@@ -925,7 +941,7 @@ class Proxy:
     def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, lenient=False):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
         primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
-        self.ctx.base = base
+        self.ctx.base, self.ctx.pick, self.ctx.same_inner = base, info, set()
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
         nzbget_config = self.rpc_call(path, auth, "config", []) or []
         servers = self.news_servers(nzbget_config, title) if cfg.health_percent else []
@@ -982,10 +998,13 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
+                        mine, theirs = self.inner(servers, info), self.inner(servers, ci)
                         if readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
-                                title, info, ci, self.inner(servers, info), self.inner(servers, ci)):
-                            stats["other-release"] += 1  # what's inside is not the pick's file
+                                title, info, ci, mine, theirs):
+                            stats["other-release"] += 1  # an alt: what's inside is not the pick's file
                             continue
+                        if mine and mine == theirs:
+                            self.ctx.same_inner.add(ci.fingerprint)
                     elif named_other:
                         stats["other-release"] += 1
                         continue
@@ -1468,6 +1487,11 @@ class Proxy:
                 return 0
             name = r.title if r.title.lower().endswith(".nzb") else r.title + ".nzb"
             pp = [{"Name": "DupeAlive", "Value": str(round(100 * h.alive))}] if h and h.alive is not None else []
+            pick = getattr(self.ctx, "pick", None)
+            if pick is not None and same_data(pick, ci):  # hints for nzbget's par2-from-a-twin: try these first
+                pp.append({"Name": "DupeSameSize", "Value": "1"})
+            if ci.fingerprint in getattr(self.ctx, "same_inner", ()):
+                pp.append({"Name": "DupeSameInner", "Value": "1"})
             params = [name, base64.b64encode(data).decode(), category, 0, False, False, key, score + self.base(),
                       "SCORE", pp]
             donor_id = self.rpc(path, auth, "append", params)
@@ -1475,7 +1499,8 @@ class Proxy:
                 stats["append"] += 1
                 return 0
             self.state.record(key, ci.fingerprint, donor_id)
-        log.info("added donor nzbid=%d %s", donor_id, desc)
+        log.info("added donor nzbid=%d%s %s", donor_id,  # likely-twin hints first: the line ends with (how)
+                 "".join(" [%s]" % x["Name"] for x in pp if x["Name"].startswith("DupeSame")), desc)
         return donor_id
 
     def base(self):

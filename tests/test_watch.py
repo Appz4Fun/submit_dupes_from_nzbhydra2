@@ -1,5 +1,6 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
+import os
 
 import pytest
 
@@ -681,3 +682,50 @@ def test_a_listing_naming_another_group_resolution_or_hdr_is_never_fetched(make_
     p.watch_once()
     p.wait_idle(30)
     assert not hydra.fetches
+
+
+def _pp(append):
+    return {p["Name"]: p["Value"] for p in append["params"][9]}
+
+
+def test_a_donor_with_the_picks_data_files_is_hinted_dupe_same_size(make_proxy, nzbget, hydra, tmp_path):
+    # nzbget's par2-from-a-twin tries hinted duplicates first (it still checks the par2 checksums): a donor
+    # with the pick's data files, byte for byte in size, even with its own par2 volumes, gets DupeSameSize=1
+    pick = _with_pars(TITLE, "p", 5000000)
+    twin, alt = _with_pars(TITLE, "t", 9000000), release(TITLE, prefix="a", segs_per_file=21)
+    hydra.add(TITLE, twin)
+    hydra.add(TITLE, alt)
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(twin) + article_ids(alt)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    hints = {base64.b64decode(a["params"][1]): _pp(a) for a in nzbget.appends}
+    assert hints[twin].get("DupeSameSize") == "1"
+    assert "DupeSameSize" not in hints[alt]
+
+
+def test_a_donor_whose_packed_file_matches_is_hinted_dupe_same_inner(make_proxy, nzbget, hydra, tmp_path):
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert _pp(d).get("DupeSameInner") == "1"
+
+
+def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_proxy, nzbget, hydra, tmp_path):
+    # the user's kill switch: with STATE_DIR/hydra.off present nothing is searched or fetched from Hydra
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()
+    p.watch_once()
+    p.wait_idle(20)
+    assert not hydra.queries and not hydra.fetches and not nzbget.appends
