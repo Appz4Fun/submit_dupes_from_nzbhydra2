@@ -278,3 +278,11 @@ def test_par_doomed_predicts_last_nights_par_failures():
     assert not _geometry_7896(0.998)[0]                # 2 of 1,000 missing: ~4% of blocks, well inside the pars
     info = ndp.NzbInfo(1, 100, frozenset(), "", frozenset({"x"}), {}, "a.mkv")
     assert ndp.par_doomed(info, 0.5, 15000000)[0] is False   # no recovery volumes known: no verdict
+
+
+def test_normalize_title_drops_a_par2_subject_s_part_tag_and_dashed_volume():
+    # live (How to Make a Killing, nzbid 8188): an NZB named after its par2 subject searched for
+    # "...triton.vol03.07" and matched none of 258 Hydra results
+    raw = "[04_10]_-_How.to.Make.a.Killing.2026.2160p.UHD.BluRay.Hybrid.REMUX.DV.HDR10+.HEVC.Atmos-TRiToN.vol03-07.par2"
+    assert normalize_title(raw) == normalize_title(
+        "How.to.Make.a.Killing.2026.2160p.UHD.BluRay.Hybrid.REMUX.DV.HDR10+.HEVC.Atmos-TRiToN")

@@ -47,7 +47,7 @@ WATCH_STATUSES = ("QUEUED", "PAUSED", "DOWNLOADING", "FETCHING")  # not yet past
 RELIST_WINDOW = 120.0     # s: listings of one size posted this close together are one posting on several indexers
 INDEXER_COOLDOWN = 1800.0  # s an indexer is not asked for NZBs after it refused one (403/429: its grab limit)
 Result = namedtuple("Result", "title link size grabs date indexer")  # one Hydra search hit
-EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+\+\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
+EXT_RE = re.compile(r"(\.(part\d+\.rar|vol\d+[+-]\d+\.par2|7z\.\d{3}|r\d{2}|z\d{2}|nzb|mkv|mp4|m4v|avi|ts|"
                     r"rar|par2|7z|zip|nfo|sfv|srr|srt|sub|idx|jpg|png|txt)|(?<![hx])\.\d{3})$", re.I)  # not H.264
 JUNK_RE = re.compile(r"([.\-_ ](xpost|postbot|obfuscated|scrambled|asrequested|rp|rakuv[a-z0-9]*|buymore|"
                      r"chamele0n|sample|repost))+$", re.I)  # rakuv[a-z0-9]* not rakuv\w*: \w absorbs the "_"
@@ -600,7 +600,7 @@ class Proxy:
         self.indexer_locks = {}  # indexer -> one fetch at a time
         self.refused = dict(self.state.data.get("_refused", {}).get("until", {}))  # indexer -> refused until
         self.ctx = threading.local()             # per discovery: .base, added to every DupeScore sent
-        self.watched, self.first_seen = set(), {}  # watcher: NZBIDs handled; NZBID -> first seen in the queue
+        self.watched, self.first_seen = {}, {}  # watcher: NZBID -> name it was handled under; NZBID -> first seen in the queue
         self.blocks, self.block_lock = {}, threading.Lock()  # par2 index article -> its block size (or None)
 
     def _indexer_lock(self, indexer):
@@ -1325,11 +1325,11 @@ class Proxy:
         history = None
         for g in queue:
             nzbid = _int(g.get("NZBID"))
-            if g.get("Status") not in WATCH_STATUSES or nzbid <= 0 or nzbid in self.watched:
+            if g.get("Status") not in WATCH_STATUSES or nzbid <= 0 or self.watched.get(nzbid) == g.get("NZBName"):
                 continue
             if now - self.first_seen.setdefault(nzbid, now) < self.cfg.watch_settle:
                 continue
-            self.watched.add(nzbid)
+            self.watched[nzbid] = g.get("NZBName")
             if g.get("DupeKey") and history is None:
                 history = self.rpc_call(path, auth, "history", [True]) or []
             job = self.pick_job(path, auth, g, queue, history or [])
@@ -1361,11 +1361,16 @@ class Proxy:
         if info is None:
             return None
         if nzbid in self.state.nzbids_for(info.fingerprint):
-            if not self.state.search_unfinished(nzbid):
+            if self.renamed(key, title):
+                log.info("watch: nzbid=%d %s was searched as %s: searching again under its new name", nzbid, title, key)
+                key = "dupes:" + normalize_title(title)
+                self.rpc_call(path, auth, "editqueue", ["GroupSetDupeKey", key, [nzbid]])
+            elif not self.state.search_unfinished(nzbid):
                 log.info("watch: nzbid=%d %s was handled already (appended or searched by this proxy)", nzbid, title)
                 return None  # the same queue item again; a re-submission of the same NZB gets a new NZBID
-            log.info("watch: nzbid=%d %s: its search never finished (the worker was killed): searching again", nzbid,
-                     title)
+            else:
+                log.info("watch: nzbid=%d %s: its search never finished (the worker was killed): searching again",
+                         nzbid, title)
         if not key or score < self.cfg.primary_score:  # managed here from now on: lift it to primary_score
             key = key or "dupes:" + normalize_title(title)
             for cmd, arg in (("GroupSetDupeKey", key), ("GroupSetDupeScore", str(self.cfg.primary_score)), ("GroupSetDupeMode", "SCORE")):
@@ -1383,6 +1388,14 @@ class Proxy:
                  else "")
         return (key, title, info, g.get("Category") or "", path, auth, -nzbid if ambiguous else nzbid, time.time(),
                 score_base(score))
+
+    def renamed(self, key, title):
+        """True when a pick this proxy keyed from its name ("dupes:...") now shows a name its key wasn't made
+        from: renamed in nzbget, or a name the old normalization got wrong (a par2 subject's "volNN-NN")."""
+        g = self.state.data.get(key)
+        if not key.startswith("dupes:") or not isinstance(g, dict) or not g.get("title"):
+            return False
+        return key != "dupes:" + normalize_title(g["title"]) or not same_release(g["title"], title)
 
     def queued_nzb(self, path, auth, g):
         """(NzbInfo, ambiguous) of a queue item from the copy nzbget keeps in NzbDir (name[.N].queued: the one

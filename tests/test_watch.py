@@ -519,3 +519,23 @@ def test_a_pick_almost_downloaded_and_above_critical_health_is_not_swapped(make_
     got = p.swap_if_failing("/jsonrpc", p.watch_auth(), TITLE, 500, doomed, {501: (80, 1.0, False)})
     assert got == 0
     assert not [e for e in nzbget.edits if e[0] in ("HistoryRedownload", "GroupDelete", "GroupDupeDelete")]
+
+
+def test_a_pick_renamed_after_its_search_is_searched_again_under_its_new_name(make_proxy, nzbget, hydra, tmp_path):
+    # live (How to Make a Killing, nzbid 8188): the pick came in under a junk name, found no donors, then nzbget
+    # showed its real name; every later look said "handled already", so no search ever used the real name
+    old = "Junk.Upload.Name"
+    item = _pick(nzbget, tmp_path, release(TITLE, prefix="p"), key="", name=old)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    assert not nzbget.appends
+    item.update(NZBName=TITLE, DupeKey="dupes:" + ndp.normalize_title(old))
+    donor = release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    p.watch_once()
+    p.wait_idle(20)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == donor
+    assert d["params"][6] == "dupes:" + ndp.normalize_title(TITLE)
+    assert ("GroupSetDupeKey", "dupes:" + ndp.normalize_title(TITLE), [500]) in nzbget.edits
