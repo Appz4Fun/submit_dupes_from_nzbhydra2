@@ -541,14 +541,30 @@ def test_a_pick_renamed_after_its_search_is_searched_again_under_its_new_name(ma
     assert ("GroupSetDupeKey", "dupes:" + ndp.normalize_title(TITLE), [500]) in nzbget.edits
 
 
-def test_a_watched_pick_gets_the_longer_watch_deadline(make_proxy, nzbget, hydra, tmp_path):
-    # live (How to Make a Killing, nzbid 8188): Hydra's search took 35 s of the 60 s DEADLINE, so all five big
-    # REMUX donor NZBs timed out; nothing waits on a watcher's search, so it gets WATCH_DEADLINE instead
+
+def test_the_search_deadline_leaves_big_nzbs_time_to_arrive():
+    # live (How to Make a Killing, nzbid 8188): Hydra's search took 35 s of a 60 s DEADLINE and all five REMUX
+    # donor NZBs timed out; discovery runs in the background, so nothing waits on a longer one
+    assert ndp.Config().deadline == 600
+
+
+def test_a_pick_whose_search_found_no_donors_is_searched_again_later(make_proxy, nzbget, hydra, tmp_path, monkeypatch):
+    # live (nzbid 8188): one search with no donors, then nothing ever looked again while the pick kept failing
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(20)
+    assert not nzbget.appends
     donor = release(TITLE, prefix="r")
     hydra.add(TITLE, donor)
-    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
-    p = _watcher(make_proxy, deadline=0.0)
+    p.watch_once()
+    p.wait_idle(20)
+    assert not nzbget.appends                                       # not before RESEARCH_EMPTY has passed
+    monkeypatch.setattr(ndp, "RESEARCH_EMPTY", 0)
     p.watch_once()
     p.wait_idle(20)
     (d,) = nzbget.appends
     assert base64.b64decode(d["params"][1]) == donor
+    p.watch_once()
+    p.wait_idle(20)
+    assert len(nzbget.appends) == 1                                 # donors found: searched no more

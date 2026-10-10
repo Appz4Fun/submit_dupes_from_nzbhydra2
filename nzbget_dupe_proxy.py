@@ -88,8 +88,7 @@ class Config:
     watch_settle: float = 20.0    # s a pick waits in the queue first (its submitter's own backups arrive)
     nzbget_username: str = ""     # nzbget login for the watcher (the Hydra path uses Hydra's own)
     nzbget_password: str = ""
-    deadline: float = 60.0  # seconds after the primary append
-    watch_deadline: float = 300.0  # the same for a watcher's search: no client waits on it, big NZBs come slowly
+    deadline: float = 600.0  # seconds after the primary append (discovery runs in the background; big NZBs are slow)
     timeout: float = 30.0   # per HTTP request to Hydra / indexers
 
     @classmethod
@@ -456,7 +455,26 @@ class State:
         g = self.data.get(key)
         if g is not None:
             g.setdefault("searching", {})[str(nzbid)] = time.time()
+            g.get("empty", {}).pop(str(nzbid), None)
             self.save()
+
+    def searched(self, key, nzbid, added):
+        """Note how a finished search went: one that added no donors makes research_due() true later."""
+        with self.lock:
+            g = self.data.get(key)
+            if g is not None:
+                empty = g.setdefault("empty", {})
+                if added:
+                    empty.pop(str(nzbid), None)
+                else:
+                    empty[str(nzbid)] = time.time()
+                self.save()
+
+    def research_due(self, nzbid):
+        """True when nzbid's last search added no donors over RESEARCH_EMPTY seconds ago."""
+        now = time.time()
+        return any(now - t >= RESEARCH_EMPTY for k, g in self.data.items() if k != "_dead" and isinstance(g, dict)
+                   for t in [g.get("empty", {}).get(str(nzbid))] if t is not None)
 
     def end_search(self, key, nzbid):
         with self.lock:
@@ -489,7 +507,8 @@ def _int(v):
         return 0
 
 
-SEARCH_STALE = 600  # seconds after which an unfinished search (its worker was killed) may be started again
+RESEARCH_EMPTY = 900  # seconds after which a pick whose search added no donors is searched again
+SEARCH_STALE = 1800  # seconds after which an unfinished search (its worker was killed) may be started again
 RANK_REUSE = 120  # seconds a ranking of a key's backups is reused (every backup's nzbget event starts a worker)
 
 
@@ -772,18 +791,19 @@ class Proxy:
                 last = (r, reason, None, None)
         return (other or last) + (stats,)
 
-    def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, deadline=None):
+    def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
+        added = 0
         try:
-            return self._discover(key, title, info, category, path, auth, nzbid, t0, base, deadline)
+            added = self._discover(key, title, info, category, path, auth, nzbid, t0, base)
         finally:
+            self.state.searched(key, abs(nzbid), added)  # none added: searched again after RESEARCH_EMPTY
             self.state.end_search(key, abs(nzbid))  # a killed worker never gets here: the search stays unfinished
 
-    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, deadline=None):
+    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
         primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
         self.ctx.base = base
-        cfg, stats, results = self.cfg, Counter(), {}
-        deadline = t0 + (cfg.deadline if deadline is None else deadline)
+        cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
         nzbget_config = self.rpc_call(path, auth, "config", []) or []
         servers = self.news_servers(nzbget_config, title) if cfg.health_percent else []
         # the primary's own probe starts now, beside the searches: a dead primary is demoted within seconds,
@@ -905,6 +925,7 @@ class Proxy:
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
                  0 if cfg.dry_run else added, " dry_run would_add=%d" % added if cfg.dry_run else "",
                  dict(stats), time.time() - t0)
+        return added
 
     def known_postings(self, path, auth, nzbget_config, key, title):
         """Sketches of the NZBs nzbget already holds for this release: queue and history items with this
@@ -1327,7 +1348,8 @@ class Proxy:
         history = None
         for g in queue:
             nzbid = _int(g.get("NZBID"))
-            if g.get("Status") not in WATCH_STATUSES or nzbid <= 0 or self.watched.get(nzbid) == g.get("NZBName"):
+            if g.get("Status") not in WATCH_STATUSES or nzbid <= 0 or (
+                    self.watched.get(nzbid) == g.get("NZBName") and not self.state.research_due(nzbid)):
                 continue
             if now - self.first_seen.setdefault(nzbid, now) < self.cfg.watch_settle:
                 continue
@@ -1367,6 +1389,8 @@ class Proxy:
                 log.info("watch: nzbid=%d %s was searched as %s: searching again under its new name", nzbid, title, key)
                 key = "dupes:" + normalize_title(title)
                 self.rpc_call(path, auth, "editqueue", ["GroupSetDupeKey", key, [nzbid]])
+            elif self.state.research_due(nzbid):
+                log.info("watch: nzbid=%d %s: its last search added no donors: searching again", nzbid, title)
             elif not self.state.search_unfinished(nzbid):
                 log.info("watch: nzbid=%d %s was handled already (appended or searched by this proxy)", nzbid, title)
                 return None  # the same queue item again; a re-submission of the same NZB gets a new NZBID
@@ -1389,7 +1413,7 @@ class Proxy:
                  "; its NZB is one of several postings of the same size, so it is never demoted" if ambiguous
                  else "")
         return (key, title, info, g.get("Category") or "", path, auth, -nzbid if ambiguous else nzbid, time.time(),
-                score_base(score), self.cfg.watch_deadline)
+                score_base(score))
 
     def renamed(self, key, title):
         """True when a pick this proxy keyed from its name ("dupes:...") now shows a name its key wasn't made

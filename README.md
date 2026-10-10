@@ -548,8 +548,7 @@ The proxy uses the credentials that Hydra sends for its own calls to nzbget, so 
 | `MAX_DONORS` | `0` | Maximum donors per release. `0` or `-1` means no limit. With a limit `N`, the proxy downloads at most `3N` candidate NZBs, because every download counts against your indexer limits. |
 | `SIZE_TOLERANCE` | `0` | `0` turns the size filter off. `0.2` skips Hydra results more than 20% larger or smaller than the primary. |
 | `FAST_DONORS` | `5` | Donors added right after the probe. The rest are added one at a time after their full sample. |
-| `DEADLINE` | `60` | Seconds after the primary append for searching and downloading candidates. |
-| `WATCH_DEADLINE` | `300` | The same limit for a search the watcher starts for a pick already in nzbget's queue. |
+| `DEADLINE` | `600` | Seconds after the primary append for searching and downloading candidates. |
 | `TIMEOUT` | `30` | Seconds per HTTP request to Hydra or an indexer, and per news server command. |
 
 ### Health check settings
