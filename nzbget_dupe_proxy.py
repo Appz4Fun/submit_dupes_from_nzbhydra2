@@ -1490,8 +1490,8 @@ class Proxy:
                 stats["append"] += 1
                 return 0
             self.state.record(key, ci.fingerprint, donor_id)
-        log.info("added donor nzbid=%d %s%s", donor_id, desc,
-                 "".join(" [%s]" % x["Name"] for x in pp if x["Name"].startswith("DupeSame")))  # likely twin hints
+        log.info("added donor nzbid=%d%s %s", donor_id,  # likely-twin hints first: the line ends with (how)
+                 "".join(" [%s]" % x["Name"] for x in pp if x["Name"].startswith("DupeSame")), desc)
         return donor_id
 
     def base(self):
