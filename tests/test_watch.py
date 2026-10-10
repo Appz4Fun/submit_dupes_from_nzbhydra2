@@ -1,6 +1,8 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
 
+import pytest
+
 import nzbget_dupe_proxy as ndp
 from tests.fakes import FakeNntp, article_ids, basic, make_nzb, par2_main, release
 
@@ -652,9 +654,11 @@ def test_a_failing_pick_never_takes_a_posting_whose_mkv_differs_in_size(make_pro
     assert not nzbget.appends
 
 
-def test_the_inner_mkv_decides_even_when_the_posting_s_files_are_named_otherwise(make_proxy, nzbget, hydra, tmp_path):
+def test_a_posting_whose_files_name_another_group_is_never_taken_though_its_mkv_matches(make_proxy, nzbget, hydra,
+                                                                                       tmp_path):
+    # a name that says another group (or resolution, or HDR/DV format) is trusted: it is another release
     from tests.fakes import rar5_head
-    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB-DL.DDP5.1.H.264-OTHER", prefix="r")
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264-OTHER", prefix="r")
     hydra.add(RENAMED, other)
     payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("y.mkv", 13999000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
@@ -662,5 +666,18 @@ def test_the_inner_mkv_decides_even_when_the_posting_s_files_are_named_otherwise
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    (d,) = nzbget.appends
-    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+    assert not nzbget.appends
+
+
+@pytest.mark.parametrize("listed", ["Show.S01E01.1080p.WEB.H264-OTHER", "Show.S01E01.2160p.WEB.H264-GRP",
+                                    "Show.S01E01.1080p.WEB.DV.H264-GRP"])
+def test_a_listing_naming_another_group_resolution_or_hdr_is_never_fetched(make_proxy, nzbget, hydra, tmp_path,
+                                                                           listed):
+    pick = release(TITLE, prefix="p")
+    hydra.add(listed, release(TITLE, prefix="r", obfuscate=True))
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(release(TITLE, prefix="r"))).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not hydra.fetches

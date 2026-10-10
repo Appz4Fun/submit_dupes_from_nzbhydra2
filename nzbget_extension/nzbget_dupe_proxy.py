@@ -447,10 +447,21 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return True
     if not lenient:
         return False
-    a, b = release_attrs(primary_title), release_attrs(r.title)
-    if a["title"] and all(a[k] == b[k] for k in ("title", "seasons", "episodes")) and a["year"] == b["year"]:
-        return True  # same title and episode, named otherwise: what's inside decides (lenient_ok)
-    return bool(primary_bytes and r.size) and abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+    if consistent(primary_title, r.title):
+        return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
+    return not readable(r.title) and bool(primary_bytes and r.size) and \
+        abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def consistent(a_name, b_name):
+    """b may be a's release under another name: same title, episode and year, and b names no other group,
+    resolution or HDR/DV format (a name that says another one is trusted; one that leaves it out is not proof)."""
+    a, b = release_attrs(a_name), release_attrs(b_name)
+    if not a["title"] or any(a[k] != b[k] for k in ("title", "seasons", "episodes")):
+        return False
+    if a["year"] and b["year"] and a["year"] != b["year"]:
+        return False
+    return all(not b[k] or b[k] == a[k] for k in ("group", "resolution") + EXACT)
 
 
 def lenient_ok(title, info, ci, mine=None, theirs=None):
@@ -971,7 +982,8 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
-                        if not lenient_ok(title, info, ci, self.inner(servers, info), self.inner(servers, ci)):
+                        if readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
+                                title, info, ci, self.inner(servers, info), self.inner(servers, ci)):
                             stats["other-release"] += 1  # what's inside is not the pick's file
                             continue
                     elif named_other:
