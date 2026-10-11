@@ -489,6 +489,12 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
+def downloads(fetched):
+    """Indexer grabs behind a release's cached fetch_posting() results (each posting once, every listing it
+    downloaded counted)."""
+    return sum((v[4] or {}).get("downloaded", 0) for v in {id(v): v for v in fetched.values()}.values())
+
+
 def grabbed(result):
     """Did a fetch_posting() result cost a download: it ended on one, or one of its listings was downloaded
     before a later one was skipped on an indexer's cooldown?"""
@@ -1055,6 +1061,8 @@ class Proxy:
         stats, last, other = Counter(), (listings[0], "fetch", None, None), None
         for j, r in enumerate(listings):
             reason, data, ci = self.fetch(r, deadline)
+            if reason != "refused":
+                stats["downloaded"] += 1  # an indexer grab, whatever it served
             if reason == "ok" and not listing_mismatch(r, ci):
                 if j + 1 < len(listings):
                     stats["relisted"] += len(listings) - j - 1  # never fetched: the same posting
@@ -1135,7 +1143,7 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                spent = len({id(v) for v in fetched.values() if grabbed(v)})  # downloads (cooldown skips aren't)
+                spent = downloads(fetched)  # every listing the earlier pass downloaded (cooldown skips aren't)
                 now = time.time()
                 free, paid, cache_only = [], [], []
                 for g in order:
@@ -1157,7 +1165,7 @@ class Proxy:
                 chunk = order[i:i + 4]
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
                                                                        [deadline] * len(chunk)):
-                    stats.update(attempts)
+                    stats.update({k: n for k, n in attempts.items() if k != "downloaded"})  # a cost, not a rejection
                     if reason != "ok":
                         continue
                     if listing_mismatch(r, ci):

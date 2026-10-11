@@ -1465,3 +1465,15 @@ def test_a_posting_whose_last_listing_was_refused_still_counts_its_downloads():
     assert ndp.grabbed((None, "refused", None, None, Counter(parse=1, refused=1)))
     assert not ndp.grabbed((None, "refused", None, None, Counter(refused=1)))
     assert ndp.grabbed((None, "ok", b"", None, Counter()))
+
+
+def test_every_downloaded_listing_of_a_posting_counts_against_the_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): a posting whose first listing served another NZB and whose second served the right one
+    # cost two downloads but was counted once
+    p = _watcher(make_proxy)
+    L = lambda link, size: type("R", (), {"link": link, "size": size, "indexer": "i", "title": TITLE})()  # noqa
+    served = {"a": type("I", (), {"total_bytes": 5000})(), "b": type("I", (), {"total_bytes": 1000})()}
+    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: ("ok", b"", served[r.link]))
+    got = p.fetch_posting([L("a", 1000), L("b", 1000)], 0)
+    assert got[4]["downloaded"] == 2
+    assert ndp.downloads({"a": got, "b": got}) == 2
