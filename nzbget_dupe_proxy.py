@@ -1128,11 +1128,13 @@ class Proxy:
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(max(0, min(cfg.fast_donors, cap)))
-        added, placed = 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
+        added, placed, would = 0, {}, {}  # placed: fingerprint -> Placed, donors now in nzbget; would: dry run
         for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v), twin(v[2]))
             donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
             added += donor_id != 0
+            if donor_id < 0:  # dry run: what it would have been, for the swap decision
+                would[v[2].fingerprint] = (score, alive_of(probe, v))
             if donor_id > 0:
                 placed[v[2].fingerprint] = Placed(donor_id, score, alive_of(probe, v), twin(v[2]), v)
         # then full samples of every donor at once, handled as each finishes: refine fast donors, add the rest
@@ -1162,6 +1164,8 @@ class Proxy:
                 score = ranks.take(alive_of(health, v), twin(v[2]))
                 donor_id = self.add_donor(key, category, path, auth, v, score, health, "checked", stats)
                 added += donor_id != 0
+                if donor_id < 0:
+                    would[fp] = (score, alive_of(health, v))
                 if donor_id > 0:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
         if getattr(self.ctx, "placed", None) is None:
@@ -1188,6 +1192,7 @@ class Proxy:
             candidates = dict(checked_backups.get("ranked", {}))
             candidates.update({p.id: (p.score, p.alive, False) for p in placed.values()
                                if p.score > 1 and p.alive is not None})
+            candidates.update({-1 - i: (sc, al, False) for i, (sc, al) in enumerate(would.values()) if al is not None})
             self.swap_if_failing(path, auth, title, abs(nzbid), checked_backups["pick"], candidates, info, all_servers)
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),

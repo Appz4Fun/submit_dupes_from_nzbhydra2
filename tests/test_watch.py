@@ -1199,3 +1199,17 @@ def test_unchecked_backups_keep_their_score_order(make_proxy):
     p.set_score = lambda *a, **kw: True
     p.rerank("/jsonrpc", "", [hi, lo], lambda size: abs(size - 140), __import__("collections").Counter())
     assert hi.score > lo.score
+
+
+def test_a_dry_run_with_a_whole_donor_never_widens_the_search(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): would-be donors weren't swap candidates in dry run, so a whole one still set off the
+    # lenient pass: an extra grab, and a preview of a search a real run never makes
+    pick, donor = release(TITLE, prefix="p"), release(TITLE, prefix="r")
+    hydra.add(TITLE, donor)
+    hydra.add(RENAMED, _with_pars(TITLE, "z", 10000000))
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(donor)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, dry_run=True)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(hydra.fetches) == 1, hydra.fetches
