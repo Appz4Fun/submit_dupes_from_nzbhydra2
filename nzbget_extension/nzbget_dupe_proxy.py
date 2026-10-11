@@ -483,15 +483,18 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return (not readable(r.title) or hashlike(r.title)) and not conflicts(primary_title, r.title) and \
-        not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
+    hashed = hashlike(r.title)  # a digest named as the title: tags may follow, but it names no other title
+    return (not readable(r.title) or hashed) and not conflicts(primary_title, r.title) and \
+        (hashed or not other_title(primary_title, r.title)) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
 def hashlike(name):
     """Is the name's title an obfuscated hash (letters and digits run together, 12+ long), whatever tags follow?"""
     first = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)[0]  # before any separator
-    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-z])[a-z0-9]{12,}", first))
+    if re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first):
+        return True  # hex: a digest
+    return bool(re.fullmatch(r"[a-z0-9]{16,}", first)) and sum(c.isdigit() for c in first) >= 4
 
 
 def basename(name):
@@ -503,7 +506,7 @@ def other_title(a_name, b_name):
     """b names another title: it carries an episode, a year, or a group/resolution (so its title is a real one,
     not an obfuscated hash) and that title is not a's."""
     a, b = release_attrs(a_name), release_attrs(basename(b_name))
-    real = (b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))) and not hashlike(b_name)
+    real = b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))  # not an obfuscated hash
     return bool(b["title"] and real and b["title"] != a["title"])
 
 

@@ -1370,3 +1370,9 @@ def test_cooldown_skips_cost_no_fetch_budget(make_proxy, nzbget, hydra, tmp_path
     p.watch_once()
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_a_run_together_title_with_digits_is_still_another_title():
+    # Codex review (PR 3): "13ReasonsWhy" passed the hash predicate, so other_title() let it in
+    assert not ndp.hashlike("13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
+    assert ndp.other_title(TITLE, "13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
