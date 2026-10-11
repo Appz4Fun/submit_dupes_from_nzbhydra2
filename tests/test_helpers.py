@@ -351,3 +351,11 @@ def test_inner_file_gives_up_on_a_rar4_header_that_cannot_advance():
     body = struct.pack("<BHHIIBIIBBHI", 0x74, 0x8000, 0, 0, 0, 2, 0, 0, 29, 0x30, 5, 0x20) + b"a.txt"
     data = b"Rar!\x1a\x07\x00" + b"\x00\x00" + body + b"\x00" * 64
     assert ndp.inner_file(data) is None
+
+
+def test_inner_file_never_takes_a_sample_for_the_main_video():
+    # Codex review (PR 1): a sample.mkv ahead of the feature made equal samples look like the same release
+    from tests.fakes import rar5_head
+    head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("Show.S01E01-sample.mkv", b"s" * 64),))
+    assert ndp.inner_file(head) == ("mkv", 5000000000)
+    assert ndp.inner_file(rar5_head("Sample/show.sample.mkv", 64)) is None

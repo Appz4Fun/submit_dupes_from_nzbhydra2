@@ -849,3 +849,49 @@ def test_reranking_never_lands_a_donor_on_a_backups_score(make_proxy, nzbget, hy
     scores = nzbget.final_scores()
     (d,) = nzbget.appends
     assert scores[502] != scores[d["id"]], scores
+
+
+def test_rerank_keeps_every_score_it_hands_out_reserved(make_proxy):
+    # Codex review (PR 1): swapping two donors' scores released each old score one by one, freeing a score
+    # the other donor had just taken
+    p = _watcher(make_proxy)
+    ranks = ndp.Ranks()
+    ranks.used |= {80, 81}
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": TITLE, "indexer": "i", "grabs": 0})()
+    a = ndp.Placed(1, 80, 0.95, False, (r, b"", info))
+    b = ndp.Placed(2, 81, 0.90, False, (r, b"", info))
+    p.set_score = lambda *args, **kw: True
+    p.rerank("/jsonrpc", "", [a, b], lambda size: 0, __import__("collections").Counter(), ranks)
+    assert {a.score, b.score} <= ranks.used and a.score != b.score
+
+
+def test_a_failed_head_read_is_tried_again_by_a_later_search(make_proxy, monkeypatch):
+    # Codex review (PR 1): a read that failed (server down) was cached as "no inner file" for good
+    from tests.fakes import rar5_head
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda *a, **kw: None)
+    assert p.inner(["srv"], info) is None
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda *a, **kw: (rar5_head(TITLE + ".mkv", 13999000), None))
+    assert p.inner(["srv"], info) == ("mkv", 13999000)
+
+
+def test_the_lenient_pass_searches_the_episode_without_its_resolution(make_proxy):
+    # Codex review (PR 1): every query kept "1080p", so a listing named "Show S01E01 WEB H264" never came back
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    assert {"t": "search", "q": "show s01e01"} in p.queries(TITLE, info, lenient=True)
+    assert {"t": "search", "q": "show s01e01"} not in p.queries(TITLE, info)
+
+
+def test_a_cached_posting_is_found_by_any_of_its_listings(make_proxy):
+    # Codex review (PR 1): a renamed listing that joined an already fetched posting's group led it, so the cache
+    # missed and the posting was grabbed again
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link})()  # noqa: E731
+    fetched = {"a": ("r", "ok", b"", None, None)}
+    p.fetch_posting = lambda listings, deadline: (_ for _ in ()).throw(AssertionError("grabbed again"))
+    assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
+    assert p.cached(fetched, [L("b"), L("a")])

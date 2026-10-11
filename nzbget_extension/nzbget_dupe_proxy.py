@@ -253,7 +253,13 @@ def parse_nzb(data):
 
 
 MEDIA_RE = re.compile(r"\.(mkv|mp4|m4v|avi|ts|m2ts|wmv|mov)$", re.I)
+SAMPLE_RE = re.compile(r"(^|[\W_])sample([\W_]|$)", re.I)  # a sample clip, never the release's identity
 INNER_TRIES = 3  # files whose first article inner_file() is tried on
+
+
+def is_media(name):
+    """A video file's name, not a sample clip's."""
+    return bool(MEDIA_RE.search(name)) and not SAMPLE_RE.search(name)
 
 
 def _vint(data, i):
@@ -291,7 +297,7 @@ def _rar5_file(data):
             if len(raw) < n or fflags & 8:    # cut off, or (8) unpacked size unknown
                 return None
             name = raw.decode("utf-8", "replace")
-            if MEDIA_RE.search(name):
+            if is_media(name):
                 return name, unpacked
             i = end + data_size               # a sidecar (nfo, sample notes): the media file comes later
             continue
@@ -321,7 +327,7 @@ def _rar4_file(data):
             if flags & 0x200:                 # Unicode name: an ANSI name, a NUL, then the encoded Unicode one
                 raw = raw.split(b"\x00", 1)[0]
             name = raw.decode("utf-8", "replace")
-            if MEDIA_RE.search(name):
+            if is_media(name):
                 return name, unpacked
             packed = int.from_bytes(data[i + 7:i + 11], "little") | (
                 int.from_bytes(data[i + 32:i + 36], "little") << 32 if flags & 0x100 else 0)
@@ -343,7 +349,7 @@ def inner_file(data, name="", total=None):
             found = _rar5_file(data)
         elif data.startswith(b"Rar!\x1a\x07\x00"):
             found = _rar4_file(data)
-        elif MEDIA_RE.search(name) and total:
+        elif is_media(name) and total:
             found = (name, total)
         else:
             return None
@@ -870,6 +876,12 @@ class Proxy:
                 bare = ""
             if bare and bare != qs[0]["q"]:
                 qs.append({"t": "search", "q": bare})
+        if lenient and short:  # the episode/year without its resolution: postings named without it come back too
+            toks = norm.split(".")
+            cut = next(i for i, t in enumerate(toks) if MARKER_RE.match(t))
+            bare = " ".join(toks[:cut + 1])
+            if all(bare != q.get("q") for q in qs):
+                qs.append({"t": "search", "q": bare})
         if short and short != qs[0]["q"]:
             qs.append({"t": "search", "q": short})
         if short and group:  # other indexers often rename a release; the group narrows to its postings
@@ -924,13 +936,19 @@ class Proxy:
                 time.sleep(FETCH_RETRY_DELAY)
         return reason, None, None, status
 
+    @staticmethod
+    def cached(fetched, listings):
+        """The earlier result for a posting any of whose listings this release already fetched, else None."""
+        return next((fetched[r.link] for r in listings if r.link in fetched), None)
+
     def fetch_once(self, fetched, listings, deadline):
-        """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, by its first
-        listing's link) is looked at again, not grabbed again."""
-        hit = fetched.get(listings[0].link)
+        """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, under every one of
+        its listings' links) is looked at again, not grabbed again."""
+        hit = self.cached(fetched, listings)
         if hit is not None:
             return hit[:4] + (Counter(),)
-        got = fetched[listings[0].link] = self.fetch_posting(listings, deadline)
+        got = self.fetch_posting(listings, deadline)
+        fetched.update((r.link, got) for r in listings)
         return got
 
     def fetch_posting(self, listings, deadline):
@@ -1017,8 +1035,8 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                order = [g for g in order if g[0].link in fetched] + \
-                    [g for g in order if g[0].link not in fetched][:3 * cfg.max_donors]
+                order = [g for g in order if self.cached(fetched, g)] + \
+                    [g for g in order if not self.cached(fetched, g)][:3 * cfg.max_donors]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
@@ -1342,17 +1360,19 @@ class Proxy:
         with self.block_lock:
             if info.heads in self.inners:
                 return self.inners[info.heads]
-        found = None
+        found, read = None, False
         for sid, name in info.heads:
             left = 30.0 if deadline is None else min(30.0, deadline - time.time())
             if left <= 0:
                 return None  # out of time: unknown, and not cached (a later search may read it)
             got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
+            read = read or bool(got)
             found = inner_file(got[0], name, got[1]) if got else None
             if found:
                 break
-        with self.block_lock:
-            self.inners[info.heads] = found
+        if found or read:  # a failed read (server down) is not "no inner file": a later search tries again
+            with self.block_lock:
+                self.inners[info.heads] = found
         return found
 
     def par_block(self, servers, info):
@@ -1478,7 +1498,8 @@ class Proxy:
         live = sorted((p for p in placed if p.score > 1), key=lambda p: (
             -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes),
             -p.v[0].grabs))
-        held = (ranks.used - {p.score for p in live}) if ranks is not None else set()
+        olds = {p.score for p in live}
+        held = (ranks.used - olds) if ranks is not None else set()
         prev = 100
         for p in live:
             want = max(2, min(target_score(p.alive, p.twin), prev - 1))
@@ -1490,12 +1511,12 @@ class Proxy:
             if self.set_score(path, auth, p.id, want):
                 log.info("reranked donor nzbid=%d %s [%s]: score %d -> %d, alive=%s", p.id, p.v[0].title,
                          p.v[0].indexer, p.score, want, pct(p.alive))
-                if ranks is not None:
-                    ranks.release(p.score)
-                    ranks.used.add(want)
                 p.score = want
             else:
                 stats["rescore"] += 1
+        if ranks is not None:  # the set as a whole: releasing each old score could free one another donor took
+            with ranks.lock:
+                ranks.used = (ranks.used - olds) | {p.score for p in live}
 
     def rescore(self, path, auth, p, health, ranks, stats):
         """After its full sample, move a fast donor's DupeScore (and DupeAlive) to its real health."""
