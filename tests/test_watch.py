@@ -807,7 +807,7 @@ def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_
     payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
-    p = _watcher(make_proxy, max_donors=1)
+    p = _watcher(make_proxy, max_donors=2)  # 3 * 2 grabs for the release: 3 dead, then the renamed one
     p.watch_once()
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
@@ -952,7 +952,7 @@ def test_a_cached_fetch_failure_tries_the_postings_other_listings(make_proxy):
     L = lambda link: type("R", (), {"link": link})()  # noqa: E731
     fetched = {"a": ("ra", "fetch", None, None, None)}
     tried = []
-    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
+    p.fetch_posting = lambda listings, deadline, budget=None: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
     assert tried == [["b"]]
 
@@ -1042,7 +1042,7 @@ def test_a_cached_nzb_that_did_not_match_its_listing_lets_fresh_listings_be_trie
     fetched = {"a": (L("a"), "ok", b"", wrong, None)}
     tried = []
     right = type("I", (), {"total_bytes": 1000})()
-    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or (listings[0], "ok", b"",
+    p.fetch_posting = lambda listings, deadline, budget=None: tried.append([r.link for r in listings]) or (listings[0], "ok", b"",
                                                                                             right, None)
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[3] is right
     assert tried == [["b"]]
@@ -1318,3 +1318,261 @@ def test_a_posting_whose_names_conflict_costs_no_head_reads(make_proxy, nzbget, 
     p.watch_once()
     p.wait_idle(30)
     assert not reads and not nzbget.appends
+
+
+def test_an_obfuscated_listing_with_a_resolution_tag_still_reaches_the_inner_check():
+    # Codex review (PR 1): "a8f3c9e1b7d24f60.1080p" reads as readable (a resolution), so its hash title was taken
+    # for another title and the size fallback never let it through to lenient_ok()
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": "a8f3c9e1b7d24f60.1080p", "size": info.total_bytes})()
+    assert ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+    r.title = "a8f3c9e1b7d24f60.2160p"                               # a resolution it states still conflicts
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+
+
+def test_the_lenient_pass_shares_the_first_passs_deadline_and_fetch_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass got a fresh deadline and a fresh 3 * MAX_DONORS fetch allowance, so a
+    # failing pick could cost twice the documented grabs
+    from tests.fakes import rar5_head
+    pick = release(TITLE, prefix="p")
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
+    for i in range(3):
+        hydra.add(RENAMED + " v%d" % i, _with_pars(TITLE, "z%d" % i, 10000000 + i))
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(hydra.fetches) <= 3, hydra.fetches
+
+
+def test_a_real_title_with_digits_is_no_hash():
+    # Codex review (PR 3): "13.Reasons.Why" collapsed to "13reasonswhy" and read as a hash
+    assert not ndp.hashlike("13.Reasons.Why.S01E01.1080p.WEB.H264-GRP.mkv")
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p")
+    assert ndp.other_title(TITLE, "13.Reasons.Why.S01E01.1080p.WEB.H264-GRP.mkv")
+
+
+def test_cooldown_skips_cost_no_fetch_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): postings skipped on an indexer's cooldown counted as spent grabs, so the lenient pass
+    # had no budget left for a whole renamed posting elsewhere
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1), indexer="cold")
+    hydra.add(RENAMED, other, indexer="warm")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_a_run_together_title_with_digits_is_still_another_title():
+    # Codex review (PR 3): "13ReasonsWhy" passed the hash predicate, so other_title() let it in
+    assert not ndp.hashlike("13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
+    assert ndp.other_title(TITLE, "13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
+
+
+def test_a_title_and_year_run_together_is_no_hash():
+    # Codex review (PR 3): "13ReasonsWhy2017.S01E01..." passed the hash predicate and took fetch slots
+    assert not ndp.hashlike("13ReasonsWhy2017.S01E01.1080p.WEB.H264-GRP")
+    assert not ndp.hashlike("a8f3c9e1b7d24f60.S01E01.1080p")       # an episode named: not an obfuscated listing
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p")
+
+
+def test_no_lenient_pass_once_the_deadline_has_passed(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): with the shared deadline already gone the lenient pass still sent its Hydra searches
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    nzbget.config_entries = FakeNntp(_part(release(TITLE, prefix="p"), 0.3)).config(1)
+    p = _watcher(make_proxy, deadline=0.0)
+    p.watch_once()
+    p.wait_idle(30)
+    lenient_only = "q=show+s01e01&"                                  # the episode without its resolution
+    assert not [q for q in hydra.queries if lenient_only in q], hydra.queries
+
+
+def test_a_digest_with_digits_like_a_year_is_still_a_digest():
+    # Codex review (PR 3): "deadbeef2024abcd" read 2024 as a year
+    assert ndp.hashlike("deadbeef2024abcd.1080p")
+    assert not ndp.hashlike("deadbeef2024abcd.S01E01.1080p")
+
+
+def test_a_cached_group_with_fresh_listings_to_try_costs_budget(make_proxy):
+    # Codex review (PR 3): an unsettled cached group (failed, or another NZB than listed) retries its fresh
+    # listings, so it was let past the 3 * MAX_DONORS cap for free
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
+    fetched = {"a": (L("a"), "fetch", None, None, None), "s": (L("s"), "ok", b"", None, None)}
+    assert not p.free(fetched, [L("b"), L("a")])                    # will fetch b: costs a slot
+    assert p.free(fetched, [L("a")])                                # nothing new to fetch
+    assert p.free(fetched, [L("t"), L("s")])                        # settled: looked at again, no fetch
+
+
+def test_a_digest_followed_by_a_title_is_no_obfuscated_listing():
+    # Codex review (PR 3): "a8f3c9e1b7d24f60.The.Matrix.Reloaded.1080p" names a title after the digest
+    assert not ndp.hashlike("a8f3c9e1b7d24f60.The.Matrix.Reloaded.1080p")
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p.WEB.H264")
+
+
+def test_a_cached_nzb_is_still_looked_at_once_the_budget_is_spent(make_proxy):
+    # Codex review (PR 3): past the budget, a cached group with a new listing was dropped instead of looked at
+    # again from the cache
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
+    fetched = {"a": (L("a"), "ok", b"", type("I", (), {"total_bytes": 5000})(), None)}
+    assert [r.link for r in p.cached_only(fetched, [L("b"), L("a")])] == ["a"]
+
+
+def test_cooldown_only_postings_take_no_fetch_slot(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): a posting listed only on cooling-down indexers took the one slot left, and the
+    # healthy posting after it was never fetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED + " cold", release(TITLE, prefix="c", obfuscate=True), indexer="cold")
+    hydra.add(RENAMED, other, indexer="warm")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_a_cached_group_whose_fresh_listings_are_cooling_is_looked_at_free(make_proxy):
+    # Codex review (PR 3): availability was judged on all links, so a cached group with only cooling fresh
+    # listings took a paid slot (or was dropped with its cached bytes)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    R = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix})()  # noqa: E731
+    fetched = {"a": (R("a", "warm"), "fetch", None, None, None)}
+    g = [R("b", "cold"), R("a", "warm")]
+    assert not p.free(fetched, g)
+    assert not any(r.link not in fetched and p.refused.get(r.indexer, 0) <= __import__("time").time() for r in g)
+    assert [r.link for r in p.cached_only(fetched, g)] == ["a"]
+
+
+def test_a_posting_whose_last_listing_was_refused_still_counts_its_downloads():
+    # Codex review (PR 3): a group that downloaded a bad NZB and then hit a cooling indexer last reported
+    # "refused", and its real download cost no budget
+    from collections import Counter
+    assert ndp.grabbed((None, "refused", None, None, Counter(parse=1, refused=1)))
+    assert not ndp.grabbed((None, "refused", None, None, Counter(refused=1)))
+    assert ndp.grabbed((None, "ok", b"", None, Counter()))
+
+
+def test_every_downloaded_listing_of_a_posting_counts_against_the_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): a posting whose first listing served another NZB and whose second served the right one
+    # cost two downloads but was counted once
+    p = _watcher(make_proxy)
+    L = lambda link, size: type("R", (), {"link": link, "size": size, "indexer": "i", "title": TITLE})()  # noqa
+    served = {"a": type("I", (), {"total_bytes": 5000})(), "b": type("I", (), {"total_bytes": 1000})()}
+    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1, budget=None: ("ok", b"", served[r.link]))
+    got = p.fetch_posting([L("a", 1000), L("b", 1000)], 0)
+    assert got[4]["downloaded"] == 2
+    assert ndp.downloads({"a": got, "b": got}) == 2
+
+
+def test_a_digest_listing_is_checked_for_conflicts_by_its_tags_only():
+    # Codex review (PR 3): conflicts() saw the whole name, so 2024 inside the digest clashed with a 2023 movie
+    info = ndp.parse_nzb(release("Quiet.Harbour.2023.1080p.WEB.H264-GRP", prefix="p"))
+    r = type("R", (), {"title": "deadbeef2024abcd.1080p", "size": info.total_bytes})()
+    assert ndp.candidate_ok("Quiet.Harbour.2023.1080p.WEB.H264-GRP", info.total_bytes, r, 0, True)
+
+
+def test_the_budget_stops_a_posting_s_listings_once_spent(make_proxy, monkeypatch):
+    # Codex review (PR 3): each listing download takes one from the release's budget, as it happens
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i", "title": TITLE})()  # noqa: E731
+    asked = []
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries, budget=None: asked.append(r.link) or ("fetch", None, None, None))
+    fetched, budget = {}, ndp.FetchBudget(1)
+    got = p.fetch_once(fetched, [L("a"), L("b")], 0, budget)
+    assert asked == ["a"] and got[4]["downloaded"] == 1
+    assert "a" in fetched and "b" not in fetched                    # b was never asked: a later pass may try it
+
+def test_a_digest_followed_by_standard_tags_is_still_obfuscated():
+    # Codex review (PR 3): PTT read "remux" as the suffix's title
+    assert ndp.hashlike("deadbeef1234abcd.1080p.BluRay.REMUX")
+
+
+def test_a_posting_that_served_its_nzb_early_returns_its_unused_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): a three-listing posting reserved three downloads up front; when its first listing
+    # served the NZB the other two were never given back, and a later posting went unfetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    known = release(TITLE, prefix="k", extra_bytes=3)
+    for ix in ("i1", "i2", "i3"):                                    # one posting, three listings
+        hydra.add(TITLE, known, indexer=ix, posted=1700000000)
+    hydra.add(RENAMED, other, indexer="i4")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert other in [base64.b64decode(a["params"][1]) for a in nzbget.appends]
+
+
+def test_postings_beyond_a_chunks_reservation_wait_for_its_real_cost(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): postings that didn't fit a chunk's reservation were dropped before the chunk ran
+    pick, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d", extra_bytes=9)
+    for ix in ("i1", "i2", "i3"):                                    # the pick's own posting, three listings
+        hydra.add(TITLE, pick, indexer=ix, posted=1700000000)
+    hydra.add(TITLE, donor, indexer="i4")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(donor)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert donor in [base64.b64decode(a["params"][1]) for a in nzbget.appends]
+
+
+
+def test_cooldown_skips_take_no_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): the budget was taken before the cooldown check, so skipped listings spent it
+    p = _watcher(make_proxy)
+    p.refused["cold"] = __import__("time").time() + 3600
+    L = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix, "title": TITLE})()  # noqa: E731
+    asked = []
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries, budget=None: asked.append(r.link) or ("fetch", None, None, None))
+    p.fetch_posting([L("a", "cold"), L("b", "cold"), L("c", "warm")], 0, ndp.FetchBudget(1))
+    assert asked == ["c"]
+
+
+def test_a_retry_takes_its_own_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): a retried listing took one budget unit for both requests
+    import urllib.request
+    p = _watcher(make_proxy)
+    calls = []
+
+    def urlopen(*a, **kw):
+        calls.append(1)
+        raise OSError("down")
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0)
+    r = type("R", (), {"link": "http://h/getnzb/1", "indexer": "i", "title": TITLE, "size": 0})()
+    budget = ndp.FetchBudget(1)
+    assert p.fetch(r, __import__("time").time() + 30, 1, budget)[0] == "fetch"
+    assert calls == [1] and budget.spent()
+
+
+def test_both_passes_share_one_budget_object(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): the lenient pass rebuilt its budget from cached listing counts, which leave out
+    # retries, and so got back allowance the first pass had spent
+    pick = release(TITLE, prefix="p")
+    for i in range(3):
+        hydra.add(TITLE, b"garbage", size=ndp.parse_nzb(pick).total_bytes + i + 1)
+    hydra.add(RENAMED, b"garbage", size=ndp.parse_nzb(pick).total_bytes + 7)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(hydra.fetches) <= 3, hydra.fetches

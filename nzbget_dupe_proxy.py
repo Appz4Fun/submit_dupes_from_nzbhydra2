@@ -483,9 +483,64 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return not readable(r.title) and not conflicts(primary_title, r.title) and \
-        not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
+    hashed = hashlike(r.title)  # a digest named as the title: tags may follow, but it names no other title
+    named = digest_tags(r.title) if hashed else r.title  # a digest's own digits are no year
+    return (not readable(r.title) or hashed) and not conflicts(primary_title, named) and \
+        (hashed or not other_title(primary_title, r.title)) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+class FetchBudget:
+    """The downloads a release's search may still make (shared by the fetch threads)."""
+
+    def __init__(self, left):
+        self.left, self.lock = max(0, left), threading.Lock()
+
+    def spent(self):
+        with self.lock:
+            return self.left <= 0
+
+    def take(self):
+        with self.lock:
+            if self.left <= 0:
+                return False
+            self.left -= 1
+            return True
+
+
+def downloads(fetched):
+    """Indexer grabs behind a release's cached fetch_posting() results (each posting once, every listing it
+    downloaded counted)."""
+    return sum((v[4] or {}).get("downloaded", 0) for v in {id(v): v for v in fetched.values()}.values())
+
+
+def grabbed(result):
+    """Did a fetch_posting() result cost a download: it ended on one, or one of its listings was downloaded
+    before a later one was skipped on an indexer's cooldown?"""
+    return result[1] != "refused" or any(n and k not in ("refused", "relisted") for k, n in (result[4] or {}).items())
+
+
+TAG_WORDS = {"remux", "hybrid", "proper", "repack", "internal", "multi", "dubbed", "subbed", "uhd", "extended",
+             "uncut", "imax", "complete", "remastered", "unrated"}  # tags PTT may leave as a "title"
+
+
+def digest_tags(name):
+    """What follows a listing's leading digest (its tags), or "" when nothing does."""
+    parts = re.split(r"[.\s_\-()\[\]]+", basename(name).strip(), maxsplit=1)
+    return parts[1] if len(parts) > 1 else ""
+
+
+def hashlike(name):
+    """Is the name an obfuscated listing: a hex digest (12+) first, no episode or year, whatever tags follow?"""
+    parts = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)
+    first, rest = parts[0], parts[1] if len(parts) > 1 else ""  # the digest, then whatever tags follow it
+    a = release_attrs(rest) if rest else {"seasons": (), "episodes": (), "year": None}
+    if a["seasons"] or a["episodes"] or a["year"]:  # only the tags after the digest (its digits are no year)
+        return False
+    t = release_attrs(rest)["title"] if rest else ""
+    if t and t != release_attrs(rest)["group"] and t not in TAG_WORDS:
+        return False  # a title follows the digest: it names a release  # it names an episode or year: a real title, not an obfuscated listing
+    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first))  # a hex digest
 
 
 def basename(name):
@@ -945,17 +1000,22 @@ class Proxy:
             qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
         return qs
 
-    def fetch(self, r, deadline, retries=1):
-        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch', 'parse' or 'refused'. Indexers answer rate limits
+    def fetch(self, r, deadline, retries=1, budget=None):
+        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch', 'parse', 'refused' or 'budget' (the release's
+        downloads are spent: taken under the indexer lock, after its cooldown check, so a skip costs none). Indexers answer rate limits
         with 403/429 or an error body, sometimes only for a moment, so a failed fetch is retried once; an indexer
         still refusing (403/429) is not asked again for INDEXER_COOLDOWN. One fetch per indexer at a time, so
         its refusal is known before the next grab."""
         if self.hydra_off():
             return "refused", None, None
+        if budget is not None and budget.spent():
+            return "budget", None, None  # nothing left to take: no waiting on the indexer's lock
         with self._indexer_lock(r.indexer):
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None
-            reason, data, info, status = self._fetch(r, deadline, retries)
+            if budget is not None and not budget.take():
+                return "budget", None, None
+            reason, data, info, status = self._fetch(r, deadline, retries, budget)
             if status in (403, 429) and r.indexer:
                 self.refused[r.indexer] = time.time() + INDEXER_COOLDOWN
                 with self.state.lock:  # kept on disk: the next process (nzbget extension) honours it too
@@ -966,11 +1026,13 @@ class Proxy:
                          INDEXER_COOLDOWN // 60)
             return reason, data, info
 
-    def _fetch(self, r, deadline, retries):
-        status = None
+    def _fetch(self, r, deadline, retries, budget=None):
+        status, reason = None, "budget"
         for attempt in range(retries + 1):
             if self.hydra_off():  # checked before every attempt, after the indexer lock was waited for
                 return "refused", None, None, status
+            if attempt and budget is not None and not budget.take():
+                return reason, None, None, status  # a retry is a download too: none left, keep the last failure
             timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:
@@ -991,12 +1053,27 @@ class Proxy:
                 time.sleep(FETCH_RETRY_DELAY)
         return reason, None, None, status
 
+    @classmethod
+    def free(cls, fetched, listings):
+        """Can this posting be looked at again without a fetch: cached, and either settled (served the NZB it
+        lists) or with no listing left to try?"""
+        hit = cls.cached(fetched, listings)
+        if hit is None:
+            return False
+        fresh = any(r.link not in fetched for r in listings)
+        return not fresh or hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
+
+    @staticmethod
+    def cached_only(fetched, listings):
+        """The listings of a posting that were already fetched: looking at them again costs no grab."""
+        return [r for r in listings if r.link in fetched]
+
     @staticmethod
     def cached(fetched, listings):
         """The earlier result for a posting any of whose listings this release already fetched, else None."""
         return next((fetched[r.link] for r in listings if r.link in fetched), None)
 
-    def fetch_once(self, fetched, listings, deadline):
+    def fetch_once(self, fetched, listings, deadline, budget=None):
         """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, under every one of
         its listings' links) is looked at again, not grabbed again."""
         hit = self.cached(fetched, listings)
@@ -1005,22 +1082,46 @@ class Proxy:
         if hit is not None and (settled or not fresh):
             return hit[:4] + (Counter(),)
         if hit is not None:  # the earlier listings failed or served another NZB: try the ones not asked yet
-            got = self.fetch_posting(fresh, deadline)
+            got = self.fetch_posting(fresh, deadline, budget)
             if got[1] != "ok" and hit[1] == "ok":
                 got = hit[:4] + (got[4],)  # nothing better: keep the earlier (mismatched) one
-            fetched.update((r.link, got) for r in fresh)
+            self.remember(fetched, listings if got[1] == "ok" else fresh, got)
             return got
-        got = self.fetch_posting(listings, deadline)
-        fetched.update((r.link, got) for r in listings)
+        got = self.fetch_posting(listings, deadline, budget)
+        self.remember(fetched, listings, got)
         return got
 
-    def fetch_posting(self, listings, deadline):
+    @staticmethod
+    def remember(fetched, listings, got):
+        """Cache a fetch_posting() result under the links it covers; a fetch cut off by the budget isn't one (a
+        later pass with budget left may try those listings), and a success covers every listing of its posting;
+        a failure is cached only under the listings fetch_posting() really asked."""
+        tried = {k[1] for k in (got[4] or {}) if isinstance(k, tuple) and k[0] == "tried"}
+        for r in listings:
+            if got[1] == "ok":
+                fetched[r.link] = got  # a success covers every listing of its posting
+            elif r.link in tried and r.link not in fetched:
+                fetched[r.link] = got  # a failure only the listings that were asked
+
+    def fetch_posting(self, listings, deadline, budget=None):
         """One NZB of a posting listed by several indexers: its listings in turn until one serves an NZB of its
         listed size (an indexer may serve another indexer's NZB for a listing; that one is kept only if no
         listing serves the posting itself). -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
         stats, last, other = Counter(), (listings[0], "fetch", None, None), None
         for j, r in enumerate(listings):
-            reason, data, ci = self.fetch(r, deadline)
+            if self.refused.get(r.indexer, 0) > time.time() or self.hydra_off():
+                stats["refused"] += 1  # cooling down (or Hydra off): skipped, so no budget taken
+                last = (r, "refused", None, None)
+                continue
+            reason, data, ci = self.fetch(r, deadline, budget=budget)
+            if reason == "budget":
+                stats["over-budget"] += 1  # 3 * MAX_DONORS downloads spent for this release
+                if last[1] in ("fetch", "refused") and other is None and not stats["downloaded"]:
+                    last = (r, "budget", None, None)
+                break
+            stats[("tried", r.link)] = 1  # remember() caches failures only under the listings really tried
+            if reason not in ("refused", "budget"):
+                stats["downloaded"] += 1  # an indexer grab, whatever it served
             if reason == "ok" and not listing_mismatch(r, ci):
                 if j + 1 < len(listings):
                     stats["relisted"] += len(listings) - j - 1  # never fetched: the same posting
@@ -1035,13 +1136,15 @@ class Proxy:
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
         self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}
-        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes  # the first pass's grabs and backup ranking, for the second
+        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes
+        self.ctx.budget = None  # the search's 3 * MAX_DONORS downloads (created by its first pass)
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
-            if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
+            if self.ctx.unrescued and added < self.cfg.donor_cap and time.time() < t0 + self.cfg.deadline:
+                # will fail, nothing whole by its name, time left: look wider
                 log.info("search %s: pick will likely fail and no backup is whole: searching leniently", title)
                 self.ctx.unrescued = False
-                added += self._discover(key, title, info, category, path, auth, nzbid, time.time(), base, True,
+                added += self._discover(key, title, info, category, path, auth, nzbid, t0, base, True,  # one deadline
                                         ranks, added)
         finally:
             self.state.searched(key, abs(nzbid), added)  # none added: searched again after RESEARCH_EMPTY
@@ -1075,9 +1178,12 @@ class Proxy:
                                              info.total_bytes, info.listed))
             self.ctx.backups = checked_backups
         backups.start()
-        dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
+        size0 = whole_bytes(info) if lenient else info.total_bytes  # a truncated pick: compare with its whole size
+        dist = lambda size: abs(size - size0)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
+            if lenient and time.time() >= deadline:  # the first pass and setup used it up: no searches after it
+                return 0
             for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info, lenient)]:
                 try:
                     for r in f.result(timeout=max(0.0, deadline - time.time())):
@@ -1099,18 +1205,37 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                order = [g for g in order if self.cached(fetched, g)] + \
-                    [g for g in order if not self.cached(fetched, g)][:3 * cfg.max_donors]
+                now = time.time()
+                free, paid, cache_only = [], [], []
+                for g in order:
+                    if self.free(fetched, g):
+                        free.append(g)
+                    elif any(r.link not in fetched and self.refused.get(r.indexer, 0) <= now for r in g):
+                        paid.append(g)  # a fresh listing on an indexer not cooling down: a fetch, so a slot
+                    elif self.cached(fetched, g):
+                        cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
+                order = free + cache_only + paid  # the cache costs no fetch: before the paid ones
+            # 3 * MAX_DONORS downloads per release, both passes together: each listing download takes one, so a
+            # posting whose first listing serves its NZB leaves the rest to the postings after it
+            if getattr(self.ctx, "budget", None) is None and cfg.max_donors > 0:
+                self.ctx.budget = FetchBudget(3 * cfg.max_donors)  # one per search: both passes, retries included
+            budget = getattr(self.ctx, "budget", None) if cfg.max_donors > 0 else None
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
-            for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
+            # free and cached postings four at a time; with a budget, paid ones one at a time in rank order, so the
+            # best-ranked get the downloads, not whichever thread reaches its indexer first
+            if budget is not None:
+                head, rest = order[:len(free) + len(cache_only)], order[len(free) + len(cache_only):]
+                chunks = [head[i:i + 4] for i in range(0, len(head), 4)] + [[g] for g in rest]
+            else:
+                chunks = [order[i:i + 4] for i in range(0, len(order), 4)]
+            for n, chunk in enumerate(chunks):  # fetch the whole order: health may drop some later
                 if time.time() > deadline:
-                    stats["deadline"] += len(order) - i
+                    stats["deadline"] += sum(len(c) for c in chunks[n:])
                     break
-                chunk = order[i:i + 4]
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
-                                                                       [deadline] * len(chunk)):
-                    stats.update(attempts)
+                                                                       [deadline] * len(chunk), [budget] * len(chunk)):
+                    stats.update({k: n for k, n in attempts.items() if isinstance(k, str) and k != "downloaded"})
                     if reason != "ok":
                         continue
                     if listing_mismatch(r, ci):
