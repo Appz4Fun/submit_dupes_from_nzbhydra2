@@ -1130,11 +1130,17 @@ class Proxy:
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
                 spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
-                now = time.time()  # postings listed only on indexers cooling down can't be fetched: no slot
-                paid = [g for g in order if not self.free(fetched, g)
-                        and not all(self.refused.get(r.indexer, 0) > now for r in g)]
+                now = time.time()
+                free, paid, cache_only = [], [], []
+                for g in order:
+                    if self.free(fetched, g):
+                        free.append(g)
+                    elif any(r.link not in fetched and self.refused.get(r.indexer, 0) <= now for r in g):
+                        paid.append(g)  # a fresh listing on an indexer not cooling down: a fetch, so a slot
+                    elif self.cached(fetched, g):
+                        cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
                 left = max(0, 3 * cfg.max_donors - spent)
-                order = [g for g in order if self.free(fetched, g)] + paid[:left] + \
+                order = free + paid[:left] + cache_only + \
                     [self.cached_only(fetched, g) for g in paid[left:] if self.cached(fetched, g)]  # no budget: cache only
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]

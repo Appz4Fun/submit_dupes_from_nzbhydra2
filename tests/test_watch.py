@@ -1443,3 +1443,16 @@ def test_cooldown_only_postings_take_no_fetch_slot(make_proxy, nzbget, hydra, tm
     p.watch_once()
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_a_cached_group_whose_fresh_listings_are_cooling_is_looked_at_free(make_proxy):
+    # Codex review (PR 3): availability was judged on all links, so a cached group with only cooling fresh
+    # listings took a paid slot (or was dropped with its cached bytes)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    R = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix})()  # noqa: E731
+    fetched = {"a": (R("a", "warm"), "fetch", None, None, None)}
+    g = [R("b", "cold"), R("a", "warm")]
+    assert not p.free(fetched, g)
+    assert not any(r.link not in fetched and p.refused.get(r.indexer, 0) <= __import__("time").time() for r in g)
+    assert [r.link for r in p.cached_only(fetched, g)] == ["a"]
