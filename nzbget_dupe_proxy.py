@@ -852,10 +852,10 @@ class Proxy:
     def hydra_search(self, params):
         """All results of one newznab query, reading further pages while a page comes back full."""
         out = []
-        if self.hydra_off():
-            log.info("hydra.off: not searching Hydra")
-            return out
         for page in range(SEARCH_PAGES):
+            if self.hydra_off():  # checked before every page: a search already running stops too
+                log.info("hydra.off: not searching Hydra")
+                return out
             got = self._hydra_page(dict(params, limit=SEARCH_PAGE, offset=page * SEARCH_PAGE))
             out += got
             if len(got) < SEARCH_PAGE:
@@ -932,6 +932,8 @@ class Proxy:
     def _fetch(self, r, deadline, retries):
         status = None
         for attempt in range(retries + 1):
+            if self.hydra_off():  # checked before every attempt, after the indexer lock was waited for
+                return "refused", None, None, status
             timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:

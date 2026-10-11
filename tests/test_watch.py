@@ -983,3 +983,36 @@ def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tm
     p.wait_idle(30)
     scores, ids = nzbget.final_scores(), {base64.b64decode(a["params"][1]): a["id"] for a in nzbget.appends}
     assert scores[ids[other]] > scores[ids[part]], scores
+
+
+def test_hydra_off_stops_a_search_already_paging(make_proxy, monkeypatch):
+    # Codex review (PR 2): the switch was checked once on entry, so a search already running kept paging
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    pages = []
+
+    def page(params):
+        pages.append(params["offset"])
+        open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()  # switched off while the first page runs
+        return [object()] * ndp.SEARCH_PAGE
+    monkeypatch.setattr(p, "_hydra_page", page)
+    p.hydra_search({"t": "search", "q": "x"})
+    assert pages == [0]
+
+
+def test_hydra_off_stops_a_fetch_between_its_attempts(make_proxy, monkeypatch):
+    # Codex review (PR 2): a fetch that passed the check kept retrying after the switch was set
+    import urllib.request
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    calls = []
+
+    def urlopen(*a, **kw):
+        calls.append(1)
+        open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()
+        raise OSError("down")
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0)
+    r = type("R", (), {"link": "http://h/getnzb/1", "indexer": "i", "title": TITLE, "size": 0})()
+    p._fetch(r, __import__("time").time() + 30, 2)
+    assert calls == [1]
