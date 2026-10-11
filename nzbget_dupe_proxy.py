@@ -1098,6 +1098,10 @@ class Proxy:
         listing serves the posting itself). -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
         stats, last, other = Counter(), (listings[0], "fetch", None, None), None
         for j, r in enumerate(listings):
+            if self.refused.get(r.indexer, 0) > time.time() or self.hydra_off():
+                stats["refused"] += 1  # cooling down (or Hydra off): skipped, so no budget taken
+                last = (r, "refused", None, None)
+                continue
             if budget is not None and not budget.take():
                 stats["over-budget"] += 1  # 3 * MAX_DONORS downloads spent for this release
                 if last[1] == "fetch" and other is None and not stats["downloaded"]:

@@ -1533,3 +1533,14 @@ def test_postings_beyond_a_chunks_reservation_wait_for_its_real_cost(make_proxy,
     p.wait_idle(30)
     assert donor in [base64.b64decode(a["params"][1]) for a in nzbget.appends]
 
+
+
+def test_cooldown_skips_take_no_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): the budget was taken before the cooldown check, so skipped listings spent it
+    p = _watcher(make_proxy)
+    p.refused["cold"] = __import__("time").time() + 3600
+    L = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix, "title": TITLE})()  # noqa: E731
+    asked = []
+    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: asked.append(r.link) or ("fetch", None, None))
+    p.fetch_posting([L("a", "cold"), L("b", "cold"), L("c", "warm")], 0, ndp.FetchBudget(1))
+    assert asked == ["c"]
