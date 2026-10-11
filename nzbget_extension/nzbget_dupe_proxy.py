@@ -985,7 +985,7 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
-        self.ctx.fetched, self.ctx.backups, self.ctx.placed = {}, None, []  # the first pass's grabs and backup ranking, for the second
+        self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}  # the first pass's grabs and backup ranking, for the second
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -1070,7 +1070,8 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
-                        if readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
+                        if conflicts(title, ci.main_name) or readable(ci.main_name) and not consistent(
+                                title, ci.main_name) or not lenient_ok(
                                 title, info, ci, self.inner(servers, info, deadline), self.inner(servers, ci, deadline)):
                             stats["other-release"] += 1  # what's inside is not the pick's file
                             continue
@@ -1377,6 +1378,9 @@ class Proxy:
         with self.block_lock:
             if info.heads in self.inners:
                 return self.inners[info.heads]
+        memo = getattr(self.ctx, "inner_memo", None)  # this search's failed reads: tried once per search
+        if memo is not None and info.heads in memo:
+            return memo[info.heads]
         found, every_read = None, True
         for sid, name in info.heads:
             left = 30.0 if deadline is None else min(30.0, deadline - time.time())
@@ -1390,6 +1394,8 @@ class Proxy:
         if found or every_read:  # a failed read (server down) is not "no inner file": a later search tries again
             with self.block_lock:
                 self.inners[info.heads] = found
+        elif memo is not None:
+            memo[info.heads] = None
         return found
 
     def par_block(self, servers, info):

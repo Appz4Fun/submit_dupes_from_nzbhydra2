@@ -965,3 +965,34 @@ def test_a_cached_nzb_that_did_not_match_its_listing_lets_fresh_listings_be_trie
                                                                                             right, None)
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[3] is right
     assert tried == [["b"]]
+
+
+@pytest.mark.parametrize("files", ["Show.S01E02", "Show.S01E01.DV"])
+def test_a_posting_whose_files_name_another_episode_or_hdr_is_never_taken(make_proxy, nzbget, hydra, tmp_path, files):
+    # Codex review (PR 1): with no group or resolution the names read as unreadable, which skipped the conflict
+    # check, and an equal-sized mkv let another episode (or DV) in
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release(files, prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_the_picks_failed_head_reads_are_tried_once_per_search(make_proxy, monkeypatch):
+    # Codex review (PR 1): the pick's head reads failed and were tried again for every candidate
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    reads = []
+    monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda *a, **kw: reads.append(1))
+    p.ctx.inner_memo = {}
+    for _ in range(5):
+        assert p.inner(["srv"], info) is None
+    assert len(reads) == len(info.heads)
+    p.ctx.inner_memo = {}                                           # a later search reads them again
+    p.inner(["srv"], info)
+    assert len(reads) == 2 * len(info.heads)
