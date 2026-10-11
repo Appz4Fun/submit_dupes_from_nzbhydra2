@@ -340,6 +340,12 @@ def _rar4_file(data):
 
 
 def inner_file(data, name="", total=None):
+    """(extension, bytes) of inner_entry()."""
+    found = inner_entry(data, name, total)
+    return found[:2] if found else None
+
+
+def inner_entry(data, name="", total=None):
     """(extension, bytes) of the file a posting delivers, read from the start of one of its files: the packed
     media file a RAR4/RAR5 volume holds (every volume repeats its header; sidecars ahead of it are skipped,
     an archive with no media file in reach is unknown), or a bare media file's own size (`total`,
@@ -358,7 +364,7 @@ def inner_file(data, name="", total=None):
     if not found or not found[1]:
         return None
     ext = found[0].rsplit(".", 1)[-1].lower() if "." in found[0] else ""
-    return ext, found[1]
+    return ext, found[1], found[0]
 
 
 def par2_block_size(data):
@@ -484,6 +490,8 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
 def conflicts(a_name, b_name):
     """Does b's name state something a's contradicts: another group, resolution, HDR/DV format, or episode?"""
     a, b = release_attrs(a_name), release_attrs(b_name)
+    if a["year"] and b["year"] and a["year"] != b["year"]:
+        return True
     return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
 
 
@@ -503,8 +511,8 @@ def lenient_ok(title, info, ci, mine=None, theirs=None):
     inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
     its files must be named as the pick. Obfuscated files that can't be looked inside are no proof: another
     encode of the episode can have as many volumes of about the same size."""
-    if mine and theirs:
-        return mine == theirs
+    if mine and theirs:  # (extension, bytes, name): the name inside may not say another release either
+        return mine[:2] == theirs[:2] and not conflicts(title, theirs[2])
     return readable(ci.main_name) and same_release(title, ci.main_name)
 
 
@@ -1134,10 +1142,15 @@ class Proxy:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
         if getattr(self.ctx, "placed", None) is None:
             self.ctx.placed = []
-        self.ctx.placed += list(placed.values())  # both passes' donors are ranked together
-        self.rerank(path, auth, self.ctx.placed, dist, stats, ranks)
+        self.ctx.placed += list(placed.values())  # both passes' donors are ranked together ...
+        backups.join()                             # ... and with the submitter's own backups
+        kept = checked_backups.get("ranked", {})
+        theirs = [Placed(bid, sc, al, False, None) for bid, (sc, al, dead) in kept.items()
+                  if not dead and sc > 1 and al is not None]
+        self.rerank(path, auth, self.ctx.placed + theirs, dist, stats, ranks)
+        for b in theirs:
+            kept[b.id] = (b.score, b.alive, False)
         primary_check.join()
-        backups.join()
         if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
             candidates = dict(checked_backups.get("ranked", {}))
             candidates.update({p.id: (p.score, p.alive, False) for p in placed.values()
@@ -1388,7 +1401,7 @@ class Proxy:
                 return None  # out of time: unknown, and not cached (a later search may read it)
             got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
             every_read = every_read and bool(got)
-            found = inner_file(got[0], name, got[1]) if got else None
+            found = inner_entry(got[0], name, got[1]) if got else None
             if found:
                 break
         if found or every_read:  # a failed read (server down) is not "no inner file": a later search tries again
@@ -1518,9 +1531,9 @@ class Proxy:
         strictly falling, each at most its target_score, and never one that another posting of the key holds
         (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
         finished, so a wholer one can sit below a worse one until now."""
-        live = sorted((p for p in placed if p.score > 1), key=lambda p: (
-            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes),
-            -p.v[0].grabs))
+        live = sorted((p for p in placed if p.score > 1), key=lambda p: (  # a backup's v is None
+            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes) if p.v else 0,
+            -p.v[0].grabs if p.v else 0))
         olds = {p.score for p in live}
         held = (ranks.used - olds) if ranks is not None else set()
         prev = 100
@@ -1532,8 +1545,9 @@ class Proxy:
             if want == p.score:
                 continue
             if self.set_score(path, auth, p.id, want):
-                log.info("reranked donor nzbid=%d %s [%s]: score %d -> %d, alive=%s", p.id, p.v[0].title,
-                         p.v[0].indexer, p.score, want, pct(p.alive))
+                log.info("reranked %s nzbid=%d %s [%s]: score %d -> %d, alive=%s", "donor" if p.v else "backup",
+                         p.id, p.v[0].title if p.v else "", p.v[0].indexer if p.v else "", p.score, want,
+                         pct(p.alive))
                 p.score = want
             else:
                 stats["rescore"] += 1

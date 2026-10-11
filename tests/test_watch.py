@@ -875,7 +875,7 @@ def test_a_failed_head_read_is_tried_again_by_a_later_search(make_proxy, monkeyp
     assert p.inner(["srv"], info) is None
     monkeypatch.setattr(ndp.donor_health, "fetch_body",
                         lambda *a, **kw: (rar5_head(TITLE + ".mkv", 13999000), None))
-    assert p.inner(["srv"], info) == ("mkv", 13999000)
+    assert p.inner(["srv"], info)[:2] == ("mkv", 13999000)
 
 
 def test_the_lenient_pass_searches_the_episode_without_its_resolution(make_proxy):
@@ -921,7 +921,7 @@ def test_a_partly_failed_head_read_is_not_cached(make_proxy, monkeypatch):
     monkeypatch.setattr(ndp.donor_health, "fetch_body",
                         lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else
                         (rar5_head(TITLE + ".mkv", 13999000), None))
-    assert p.inner(["srv"], info) == ("mkv", 13999000)
+    assert p.inner(["srv"], info)[:2] == ("mkv", 13999000)
 
 
 def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tmp_path):
@@ -996,3 +996,45 @@ def test_the_picks_failed_head_reads_are_tried_once_per_search(make_proxy, monke
     p.ctx.inner_memo = {}                                           # a later search reads them again
     p.inner(["srv"], info)
     assert len(reads) == 2 * len(info.heads)
+
+
+def test_a_packed_file_named_as_another_episode_is_never_taken(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the media name read from the rar header was dropped, so an obfuscated posting whose
+    # archive holds S01E02 passed on its size alone
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000),
+                "r-0-0@x": rar5_head("Show.S01E02.1080p.WEB.H264-GRP.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_a_name_with_another_year_conflicts():
+    # Codex review (PR 1): "Quiet.Harbour.2024" against a 2025 pick names no group or resolution
+    assert ndp.conflicts("Quiet.Harbour.2025.1080p.WEB.H264-GRP", "Quiet.Harbour.2024.part01.rar")
+    assert not ndp.conflicts("Quiet.Harbour.2025.1080p.WEB.H264-GRP", "Quiet.Harbour.2025.part01.rar")
+
+
+def test_a_whole_donor_outranks_a_damaged_backup(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): backups ranked first held 89 and 88, so rerank pushed a 100% donor to 87, behind
+    # the 99% backup
+    pick, whole, most = release(TITLE, prefix="p"), release(TITLE, prefix="w"), release(TITLE, prefix="m")
+    donor = release(TITLE, prefix="d", extra_bytes=7)
+    hydra.add(TITLE, donor)
+    ids = article_ids(most)
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(whole) + ids[:len(ids) * 99 // 100] +
+                                     article_ids(donor)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, whole, 501, PICK - 1, TITLE + ".w")
+    _backup(nzbget, tmp_path, most, 502, PICK - 2, TITLE + ".m")
+    p = _watcher(make_proxy, health_min_articles=500)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    (d,) = nzbget.appends
+    assert scores[d["id"]] > scores[502], scores
