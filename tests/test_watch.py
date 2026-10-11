@@ -1473,7 +1473,7 @@ def test_every_downloaded_listing_of_a_posting_counts_against_the_budget(make_pr
     p = _watcher(make_proxy)
     L = lambda link, size: type("R", (), {"link": link, "size": size, "indexer": "i", "title": TITLE})()  # noqa
     served = {"a": type("I", (), {"total_bytes": 5000})(), "b": type("I", (), {"total_bytes": 1000})()}
-    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: ("ok", b"", served[r.link]))
+    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1, budget=None: ("ok", b"", served[r.link]))
     got = p.fetch_posting([L("a", 1000), L("b", 1000)], 0)
     assert got[4]["downloaded"] == 2
     assert ndp.downloads({"a": got, "b": got}) == 2
@@ -1491,7 +1491,7 @@ def test_the_budget_stops_a_posting_s_listings_once_spent(make_proxy, monkeypatc
     p = _watcher(make_proxy)
     L = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i", "title": TITLE})()  # noqa: E731
     asked = []
-    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: asked.append(r.link) or ("fetch", None, None))
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries: asked.append(r.link) or ("fetch", None, None, None))
     fetched, budget = {}, ndp.FetchBudget(1)
     got = p.fetch_once(fetched, [L("a"), L("b")], 0, budget)
     assert asked == ["a"] and got[4]["downloaded"] == 1
@@ -1541,6 +1541,6 @@ def test_cooldown_skips_take_no_budget(make_proxy, monkeypatch):
     p.refused["cold"] = __import__("time").time() + 3600
     L = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix, "title": TITLE})()  # noqa: E731
     asked = []
-    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: asked.append(r.link) or ("fetch", None, None))
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries: asked.append(r.link) or ("fetch", None, None, None))
     p.fetch_posting([L("a", "cold"), L("b", "cold"), L("c", "warm")], 0, ndp.FetchBudget(1))
     assert asked == ["c"]

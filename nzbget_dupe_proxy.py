@@ -996,8 +996,9 @@ class Proxy:
             qs.append({"t": "tvsearch", "tvdbid": tvdb, "season": int(m.group(1)), "ep": int(m.group(2))})
         return qs
 
-    def fetch(self, r, deadline, retries=1):
-        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch', 'parse' or 'refused'. Indexers answer rate limits
+    def fetch(self, r, deadline, retries=1, budget=None):
+        """-> (reason, nzb bytes, NzbInfo); reason 'ok', 'fetch', 'parse', 'refused' or 'budget' (the release's
+        downloads are spent: taken under the indexer lock, after its cooldown check, so a skip costs none). Indexers answer rate limits
         with 403/429 or an error body, sometimes only for a moment, so a failed fetch is retried once; an indexer
         still refusing (403/429) is not asked again for INDEXER_COOLDOWN. One fetch per indexer at a time, so
         its refusal is known before the next grab."""
@@ -1006,6 +1007,8 @@ class Proxy:
         with self._indexer_lock(r.indexer):
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None
+            if budget is not None and not budget.take():
+                return "budget", None, None
             reason, data, info, status = self._fetch(r, deadline, retries)
             if status in (403, 429) and r.indexer:
                 self.refused[r.indexer] = time.time() + INDEXER_COOLDOWN
@@ -1102,14 +1105,14 @@ class Proxy:
                 stats["refused"] += 1  # cooling down (or Hydra off): skipped, so no budget taken
                 last = (r, "refused", None, None)
                 continue
-            if budget is not None and not budget.take():
+            reason, data, ci = self.fetch(r, deadline, budget=budget)
+            if reason == "budget":
                 stats["over-budget"] += 1  # 3 * MAX_DONORS downloads spent for this release
-                if last[1] == "fetch" and other is None and not stats["downloaded"]:
+                if last[1] in ("fetch", "refused") and other is None and not stats["downloaded"]:
                     last = (r, "budget", None, None)
                 break
-            reason, data, ci = self.fetch(r, deadline)
             stats[("tried", r.link)] = 1  # remember() caches failures only under the listings really tried
-            if reason != "refused":
+            if reason not in ("refused", "budget"):
                 stats["downloaded"] += 1  # an indexer grab, whatever it served
             if reason == "ok" and not listing_mismatch(r, ci):
                 if j + 1 < len(listings):
