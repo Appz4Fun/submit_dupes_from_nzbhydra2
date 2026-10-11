@@ -1491,7 +1491,7 @@ def test_the_budget_stops_a_posting_s_listings_once_spent(make_proxy, monkeypatc
     p = _watcher(make_proxy)
     L = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i", "title": TITLE})()  # noqa: E731
     asked = []
-    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries: asked.append(r.link) or ("fetch", None, None, None))
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries, budget=None: asked.append(r.link) or ("fetch", None, None, None))
     fetched, budget = {}, ndp.FetchBudget(1)
     got = p.fetch_once(fetched, [L("a"), L("b")], 0, budget)
     assert asked == ["a"] and got[4]["downloaded"] == 1
@@ -1541,6 +1541,23 @@ def test_cooldown_skips_take_no_budget(make_proxy, monkeypatch):
     p.refused["cold"] = __import__("time").time() + 3600
     L = lambda link, ix: type("R", (), {"link": link, "size": 1000, "indexer": ix, "title": TITLE})()  # noqa: E731
     asked = []
-    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries: asked.append(r.link) or ("fetch", None, None, None))
+    monkeypatch.setattr(p, "_fetch", lambda r, deadline, retries, budget=None: asked.append(r.link) or ("fetch", None, None, None))
     p.fetch_posting([L("a", "cold"), L("b", "cold"), L("c", "warm")], 0, ndp.FetchBudget(1))
     assert asked == ["c"]
+
+
+def test_a_retry_takes_its_own_budget(make_proxy, monkeypatch):
+    # Codex review (PR 3): a retried listing took one budget unit for both requests
+    import urllib.request
+    p = _watcher(make_proxy)
+    calls = []
+
+    def urlopen(*a, **kw):
+        calls.append(1)
+        raise OSError("down")
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0)
+    r = type("R", (), {"link": "http://h/getnzb/1", "indexer": "i", "title": TITLE, "size": 0})()
+    budget = ndp.FetchBudget(1)
+    assert p.fetch(r, __import__("time").time() + 30, 1, budget)[0] == "fetch"
+    assert calls == [1] and budget.spent()

@@ -1015,7 +1015,7 @@ class Proxy:
                 return "refused", None, None
             if budget is not None and not budget.take():
                 return "budget", None, None
-            reason, data, info, status = self._fetch(r, deadline, retries)
+            reason, data, info, status = self._fetch(r, deadline, retries, budget)
             if status in (403, 429) and r.indexer:
                 self.refused[r.indexer] = time.time() + INDEXER_COOLDOWN
                 with self.state.lock:  # kept on disk: the next process (nzbget extension) honours it too
@@ -1026,11 +1026,13 @@ class Proxy:
                          INDEXER_COOLDOWN // 60)
             return reason, data, info
 
-    def _fetch(self, r, deadline, retries):
-        status = None
+    def _fetch(self, r, deadline, retries, budget=None):
+        status, reason = None, "budget"
         for attempt in range(retries + 1):
             if self.hydra_off():  # checked before every attempt, after the indexer lock was waited for
                 return "refused", None, None, status
+            if attempt and budget is not None and not budget.take():
+                return reason, None, None, status  # a retry is a download too: none left, keep the last failure
             timeout = max(1.0, min(self.cfg.timeout, deadline - time.time()))
             try:
                 with urllib.request.urlopen(r.link, timeout=timeout) as resp:

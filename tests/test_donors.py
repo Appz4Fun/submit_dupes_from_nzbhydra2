@@ -143,7 +143,7 @@ def test_fetches_capped(make_proxy, nzbget, hydra):
     for _ in range(10):
         hydra.add(TITLE, b"garbage", size=nzb_total(primary()))
     append(p, primary())
-    assert len(set(hydra.fetches)) == 3               # 3 * MAX_DONORS candidates (each retried once)
+    assert len(hydra.fetches) == 3                    # 3 * MAX_DONORS downloads, retries included (README)
 
 
 def test_hydra_dupekey_kept(proxy, nzbget, hydra):
