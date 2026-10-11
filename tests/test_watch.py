@@ -1111,3 +1111,26 @@ def test_backups_keep_their_size_in_the_combined_ranking(make_proxy):
     p.set_score = lambda *a, **kw: True
     p.rerank("/jsonrpc", "", [near, far], lambda size: abs(size - 140), __import__("collections").Counter())
     assert near.score > far.score
+
+
+def test_a_donor_whose_packed_file_names_another_release_is_rejected_even_when_the_picks_cannot_be_read(make_proxy):
+    # Codex review (PR 1): with the pick's header unreadable (mine None) the donor's own inner name was ignored
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    ci = ndp.parse_nzb(release(TITLE, prefix="r"))
+    assert ndp.lenient_ok(TITLE, info, ci, None, ("mkv", 1, TITLE + ".mkv"))
+    assert not ndp.lenient_ok(TITLE, info, ci, None, ("mkv", 1, "Other.Show.S01E02.1080p.WEB.H264-GRP.mkv"))
+
+
+def test_an_unchecked_backup_stays_below_checked_ones_in_the_combined_ranking(make_proxy):
+    # Codex review (PR 1): the rerank kept an unreadable backup's 87 while it moved checked copies around it, so
+    # it ended above one sampled 100%
+    p = _watcher(make_proxy)
+    r = type("R", (), {"title": TITLE, "indexer": "i", "grabs": 0})()
+    v = (r, b"", type("I", (), {"total_bytes": 140})())
+    donors = [ndp.Placed(10 + i, 80 - i, 1.0, True, v) for i in range(2)]
+    checked = [ndp.Placed(1, 89, 1.0, False, None, 140), ndp.Placed(2, 88, 1.0, False, None, 140)]
+    unchecked = ndp.Placed(3, 87, None, False, None, 140, True)
+    p.set_score = lambda *a, **kw: True
+    everyone = donors + checked + [unchecked]
+    p.rerank("/jsonrpc", "", everyone, lambda size: 0, __import__("collections").Counter())
+    assert unchecked.score < min(x.score for x in donors + checked)

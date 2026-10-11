@@ -524,8 +524,10 @@ def lenient_ok(title, info, ci, mine=None, theirs=None):
     inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
     its files must be named as the pick. Obfuscated files that can't be looked inside are no proof: another
     encode of the episode can have as many volumes of about the same size."""
-    if mine and theirs:  # (extension, bytes, name): the name inside may not say another release either
-        return mine[:2] == theirs[:2] and not conflicts(title, theirs[2]) and not other_title(title, theirs[2])
+    if theirs and (conflicts(title, theirs[2]) or other_title(title, theirs[2])):
+        return False  # the name inside says another release, whether or not the pick's could be read
+    if mine and theirs:  # (extension, bytes, name)
+        return mine[:2] == theirs[:2]
     return readable(ci.main_name) and same_release(title, ci.main_name)
 
 
@@ -730,6 +732,7 @@ class Placed:
     twin: bool
     v: tuple       # (Result, nzb bytes, NzbInfo); None for a submitter's backup
     size: int = 0  # a backup's bytes (a donor's are v[2].total_bytes)
+    unchecked: bool = False  # a backup whose health is unknown: below every checked one
 
 
 def alive_of(health, v):
@@ -1163,7 +1166,9 @@ class Proxy:
         sizes = checked_backups.get("sizes", {})
         theirs = [Placed(bid, sc, al, False, None, sizes.get(bid, 0)) for bid, (sc, al, dead) in kept.items()
                   if not dead and sc > 1 and al is not None]
-        self.rerank(path, auth, self.ctx.placed + theirs, dist, stats, ranks)
+        theirs_unchecked = [Placed(bid, sc, None, False, None, sizes.get(bid, 0), True)
+                            for bid, sc in checked_backups.get("unchecked", {}).items()]
+        self.rerank(path, auth, self.ctx.placed + theirs + theirs_unchecked, dist, stats, ranks)
         for b in theirs:
             kept[b.id] = (b.score, b.alive, False)
             for tid in checked_backups.get("twins", {}).get(b.id, ()):  # the same NZB keeps its sibling's rank
@@ -1284,6 +1289,7 @@ class Proxy:
                  and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
         groups, seen, twins = {}, {}, []  # twins: backups with the same NZB as one already in groups
         unknown = []  # backups whose health stays unknown (NZB unreadable, or no server answered)
+        unchecked = {}  # ... and the scores they were ranked at
         for x in items:
             info, _ = self.queued_nzb(path, auth, x)
             if info is None:
@@ -1357,6 +1363,7 @@ class Proxy:
                 ranks.release(score)
                 continue
             if self.set_score(path, auth, _int(x.get("NZBID")), score):
+                unchecked[_int(x.get("NZBID"))] = score
                 stats["backup-ranked"] += 1
                 log.info("ranked backup nzbid=%s %s: score %d -> %d, health unknown", x.get("NZBID"),
                          x.get("NZBName") or x.get("Name"), _int(x.get("DupeScore")), score + base)
@@ -1378,7 +1385,8 @@ class Proxy:
                                "seen": [_int(x.get("NZBID")) for x in items]}  # every backup this ranking covered
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
-            out.update(ranked=ranked, pick=pick_h, sizes={b: i.total_bytes for b, (_, i) in groups.items()},
+            out.update(ranked=ranked, pick=pick_h, unchecked=unchecked,
+                       sizes={b: i.total_bytes for b, (_, i) in groups.items()},
                        twins={s: [t for t, _, sib in twins if sib == s] for _, _, s in twins})
         elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
@@ -1553,7 +1561,7 @@ class Proxy:
         (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
         finished, so a wholer one can sit below a worse one until now."""
         live = sorted((p for p in placed if p.score > 1), key=lambda p: (  # a backup's v is None
-            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
+            p.unchecked, -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
             dist(p.v[2].total_bytes if p.v else p.size) if p.v or p.size else 0,
             -p.v[0].grabs if p.v else 0))
         olds = {p.score for p in live}
