@@ -1,5 +1,6 @@
 """Watching nzbget's queue: picks submitted straight to nzbget (nzbdavkodi, manual uploads) get donors too."""
 import base64
+import os
 
 import pytest
 
@@ -628,7 +629,7 @@ def test_a_failing_pick_is_swapped_for_a_posting_of_another_size_holding_the_sam
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -643,7 +644,7 @@ def test_a_failing_pick_never_takes_a_posting_whose_mkv_differs_in_size(make_pro
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r")
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head(TITLE + ".mkv", 139989999)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head(TITLE + ".mkv", 139989999)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -658,7 +659,7 @@ def test_a_posting_whose_files_name_another_group_is_never_taken_though_its_mkv_
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264-OTHER", prefix="r")
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("y.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("y.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -681,13 +682,48 @@ def test_a_listing_naming_another_group_resolution_or_hdr_is_never_fetched(make_
     assert not hydra.fetches
 
 
+def _pp(append):
+    return {p["Name"]: p["Value"] for p in append["params"][9]}
+
+
+def test_a_donor_with_the_picks_data_files_is_hinted_dupe_same_size(make_proxy, nzbget, hydra, tmp_path):
+    # nzbget's par2-from-a-twin tries hinted duplicates first (it still checks the par2 checksums): a donor
+    # with the pick's data files, byte for byte in size, even with its own par2 volumes, gets DupeSameSize=1
+    pick = _with_pars(TITLE, "p", 5000000)
+    twin, alt = _with_pars(TITLE, "t", 9000000), release(TITLE, prefix="a", segs_per_file=21)
+    hydra.add(TITLE, twin)
+    hydra.add(TITLE, alt)
+    nzbget.config_entries = FakeNntp(article_ids(pick) + article_ids(twin) + article_ids(alt)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    hints = {base64.b64decode(a["params"][1]): _pp(a) for a in nzbget.appends}
+    assert hints[twin].get("DupeSameSize") == "1"
+    assert "DupeSameSize" not in hints[alt]
+
+
+def test_a_donor_whose_packed_file_matches_is_hinted_dupe_same_inner(make_proxy, nzbget, hydra, tmp_path):
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert _pp(d).get("DupeSameInner") == "1"
+
+
 def test_the_lenient_pass_keeps_max_donors_for_the_whole_release(make_proxy, nzbget, hydra, tmp_path):
     # Codex review (PR 1): the lenient pass counted from 0 again, so MAX_DONORS=1 could add two donors
     from tests.fakes import rar5_head
     pick, half, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
     hydra.add(TITLE, half)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(half, 0.6) + article_ids(other),
                                      payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
@@ -703,7 +739,7 @@ def test_a_lenient_donor_never_ties_a_backup_ranked_in_the_first_pass(make_proxy
     from tests.fakes import rar5_head
     pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + article_ids(other),
                                      payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
@@ -725,7 +761,7 @@ def test_the_lenient_pass_also_searches_by_title_alone(make_proxy, nzbget, hydra
     from tests.fakes import rar5_head
     pick, other = release(MOVIE, prefix="p"), _with_pars(MOVIE, "r", 10000000)
     hydra.add("Quiet Harbour 1080p WEB", other)
-    payloads = {"p-0-0@x": rar5_head(MOVIE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(MOVIE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick, name=MOVIE)
     p = _watcher(make_proxy)
@@ -768,7 +804,7 @@ def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_
     for i in range(3):
         hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy, max_donors=1)
@@ -785,7 +821,7 @@ def test_the_lenient_pass_never_grabs_a_posting_twice(make_proxy, nzbget, hydra,
     for i in range(6):
         hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -795,6 +831,18 @@ def test_the_lenient_pass_never_grabs_a_posting_twice(make_proxy, nzbget, hydra,
     assert len(grabs) == len(set(grabs)), grabs
 
 
+def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_proxy, nzbget, hydra, tmp_path):
+    # the user's kill switch: with STATE_DIR/hydra.off present nothing is searched or fetched from Hydra
+    hydra.add(TITLE, release(TITLE, prefix="r"))
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()
+    p.watch_once()
+    p.wait_idle(20)
+    assert not hydra.queries and not hydra.fetches and not nzbget.appends
+
+
 def test_a_posting_the_first_pass_rejected_by_name_is_looked_inside_by_the_lenient_pass(make_proxy, nzbget, hydra,
                                                                                          tmp_path):
     # Codex review (PR 1): listed by the pick's own name, its files name no group, so the first pass rejected
@@ -802,7 +850,7 @@ def test_a_posting_the_first_pass_rejected_by_name_is_looked_inside_by_the_lenie
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264", prefix="r")
     hydra.add(TITLE, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -819,7 +867,7 @@ def test_a_lenient_donor_less_whole_than_a_backup_ranks_below_it(make_proxy, nzb
     from tests.fakes import rar5_head
     pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.7),
                                      payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
@@ -838,7 +886,7 @@ def test_reranking_never_lands_a_donor_on_a_backups_score(make_proxy, nzbget, hy
     from tests.fakes import rar5_head
     pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.85),
                                      payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
@@ -874,8 +922,8 @@ def test_a_failed_head_read_is_tried_again_by_a_later_search(make_proxy, monkeyp
     monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda *a, **kw: None)
     assert p.inner(["srv"], info) is None
     monkeypatch.setattr(ndp.donor_health, "fetch_body",
-                        lambda *a, **kw: (rar5_head(TITLE + ".mkv", 139990000), None))
-    assert p.inner(["srv"], info)[:2] == ("mkv", 139990000)
+                        lambda *a, **kw: (rar5_head(TITLE + ".mkv", 1399900000), None))
+    assert p.inner(["srv"], info)[:2] == ("mkv", 1399900000)
 
 
 def test_the_lenient_pass_searches_the_episode_without_its_resolution(make_proxy):
@@ -920,8 +968,8 @@ def test_a_partly_failed_head_read_is_not_cached(make_proxy, monkeypatch):
     assert p.inner(["srv"], info) is None
     monkeypatch.setattr(ndp.donor_health, "fetch_body",
                         lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else
-                        (rar5_head(TITLE + ".mkv", 139990000), None))
-    assert p.inner(["srv"], info)[:2] == ("mkv", 139990000)
+                        (rar5_head(TITLE + ".mkv", 1399900000), None))
+    assert p.inner(["srv"], info)[:2] == ("mkv", 1399900000)
 
 
 def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tmp_path):
@@ -931,7 +979,7 @@ def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tm
     pick, part, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
     hydra.add(TITLE, part)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(part, 0.8) + article_ids(other),
                                      payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
@@ -940,6 +988,39 @@ def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tm
     p.wait_idle(30)
     scores, ids = nzbget.final_scores(), {base64.b64decode(a["params"][1]): a["id"] for a in nzbget.appends}
     assert scores[ids[other]] > scores[ids[part]], scores
+
+
+def test_hydra_off_stops_a_search_already_paging(make_proxy, monkeypatch):
+    # Codex review (PR 2): the switch was checked once on entry, so a search already running kept paging
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    pages = []
+
+    def page(params):
+        pages.append(params["offset"])
+        open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()  # switched off while the first page runs
+        return [object()] * ndp.SEARCH_PAGE
+    monkeypatch.setattr(p, "_hydra_page", page)
+    p.hydra_search({"t": "search", "q": "x"})
+    assert pages == [0]
+
+
+def test_hydra_off_stops_a_fetch_between_its_attempts(make_proxy, monkeypatch):
+    # Codex review (PR 2): a fetch that passed the check kept retrying after the switch was set
+    import urllib.request
+    p = _watcher(make_proxy)
+    os.makedirs(p.cfg.state_dir, exist_ok=True)
+    calls = []
+
+    def urlopen(*a, **kw):
+        calls.append(1)
+        open(os.path.join(p.cfg.state_dir, "hydra.off"), "w").close()
+        raise OSError("down")
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ndp, "FETCH_RETRY_DELAY", 0)
+    r = type("R", (), {"link": "http://h/getnzb/1", "indexer": "i", "title": TITLE, "size": 0})()
+    p._fetch(r, __import__("time").time() + 30, 2)
+    assert calls == [1]
 
 
 def test_a_listing_that_names_another_hdr_format_alone_is_never_fetched_by_size(make_proxy):
@@ -974,7 +1055,7 @@ def test_a_posting_whose_files_name_another_episode_or_hdr_is_never_taken(make_p
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release(files, prefix="r")
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -1004,8 +1085,8 @@ def test_a_packed_file_named_as_another_episode_is_never_taken(make_proxy, nzbge
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000),
-                "r-0-0@x": rar5_head("Show.S01E02.1080p.WEB.H264-GRP.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000),
+                "r-0-0@x": rar5_head("Show.S01E02.1080p.WEB.H264-GRP.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -1045,8 +1126,8 @@ def test_a_packed_file_of_another_show_is_never_taken(make_proxy, nzbget, hydra,
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000),
-                "r-0-0@x": rar5_head("Other.Show.S01E01.1080p.WEB.H264-GRP.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000),
+                "r-0-0@x": rar5_head("Other.Show.S01E01.1080p.WEB.H264-GRP.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -1080,7 +1161,7 @@ def test_a_posting_whose_files_name_another_show_is_never_taken(make_proxy, nzbg
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), release("Other.Show.S01E01", prefix="r")
     hydra.add(RENAMED, other)
-    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
     p = _watcher(make_proxy)
@@ -1222,3 +1303,18 @@ def test_the_lenient_tv_query_keeps_the_episode_when_the_title_has_a_year(make_p
     title = "Dark.Matter.2024.S02E05.Love.and.Be.Loved.2160p.ATVP.WEB-DL.DDP5.1.H.265-FLUX"
     info = ndp.parse_nzb(release(title, prefix="p"))
     assert {"t": "search", "q": "dark matter 2024 s02e05"} in p.queries(title, info, lenient=True)
+
+
+def test_a_posting_whose_names_conflict_costs_no_head_reads(make_proxy, nzbget, hydra, tmp_path, monkeypatch):
+    # Codex review (PR 2): the name checks ran after both inner() reads, so conflicting postings spent the
+    # discovery deadline on article reads
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E02.1080p.WEB.H264-GRP", prefix="r")
+    hydra.add(RENAMED, other)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    reads = []
+    monkeypatch.setattr(p, "inner", lambda servers, info, deadline=None: reads.append(info) or None)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not reads and not nzbget.appends
