@@ -818,8 +818,8 @@ def test_the_lenient_pass_never_grabs_a_posting_twice(make_proxy, nzbget, hydra,
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    (d,) = nzbget.appends
-    assert _pp(d).get("DupeSameInner") == "1"
+    grabs = [f.split("?")[0] for f in hydra.fetches]
+    assert len(grabs) == len(set(grabs)), grabs
 
 
 def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_proxy, nzbget, hydra, tmp_path):
@@ -832,10 +832,6 @@ def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_pro
     p.watch_once()
     p.wait_idle(20)
     assert not hydra.queries and not hydra.fetches and not nzbget.appends
-
-
-    grabs = [f.split("?")[0] for f in hydra.fetches]
-    assert len(grabs) == len(set(grabs)), grabs
 
 
 def test_a_posting_the_first_pass_rejected_by_name_is_looked_inside_by_the_lenient_pass(make_proxy, nzbget, hydra,
@@ -1298,3 +1294,18 @@ def test_the_lenient_tv_query_keeps_the_episode_when_the_title_has_a_year(make_p
     title = "Dark.Matter.2024.S02E05.Love.and.Be.Loved.2160p.ATVP.WEB-DL.DDP5.1.H.265-FLUX"
     info = ndp.parse_nzb(release(title, prefix="p"))
     assert {"t": "search", "q": "dark matter 2024 s02e05"} in p.queries(title, info, lenient=True)
+
+
+def test_a_posting_whose_names_conflict_costs_no_head_reads(make_proxy, nzbget, hydra, tmp_path, monkeypatch):
+    # Codex review (PR 2): the name checks ran after both inner() reads, so conflicting postings spent the
+    # discovery deadline on article reads
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E02.1080p.WEB.H264-GRP", prefix="r")
+    hydra.add(RENAMED, other)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    reads = []
+    monkeypatch.setattr(p, "inner", lambda servers, info, deadline=None: reads.append(info) or None)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not reads and not nzbget.appends

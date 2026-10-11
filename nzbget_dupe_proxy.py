@@ -1120,10 +1120,12 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
-                        mine, theirs = self.inner(servers, info, deadline), self.inner(servers, ci, deadline)
                         if conflicts(title, ci.main_name) or other_title(title, ci.main_name) or \
-                                readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
-                                title, info, ci, mine, theirs):
+                                readable(ci.main_name) and not consistent(title, ci.main_name):
+                            stats["other-release"] += 1  # its names say another release: no reads spent on it
+                            continue
+                        mine, theirs = self.inner(servers, info, deadline), self.inner(servers, ci, deadline)
+                        if not lenient_ok(title, info, ci, mine, theirs):
                             stats["other-release"] += 1  # an alt: what's inside is not the pick's file
                             continue
                         if mine and theirs and mine[:2] == theirs[:2]:
