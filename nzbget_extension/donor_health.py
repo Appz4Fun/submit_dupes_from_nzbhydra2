@@ -437,8 +437,8 @@ def fetch_body(servers, message_id, timeout=30.0, sized=False):
     """One small article's decoded data (a par2 index) from the first server that has it, else None. Takes one
     of each server's connection slots in turn, so it never exceeds a server's cap. sized: (data, the file size
     its =ybegin line declares) instead, or None."""
-    async def one(server):
-        slots, deadline = _slots(server), asyncio.get_running_loop().time() + timeout
+    async def one(server, deadline):
+        slots = _slots(server)
         while not slots.try_take():
             if asyncio.get_running_loop().time() > deadline:
                 return None
@@ -457,9 +457,13 @@ def fetch_body(servers, message_id, timeout=30.0, sized=False):
             slots.give_back()
 
     async def run():
+        end = asyncio.get_running_loop().time() + timeout  # one deadline for every server tried
         for server in servers:
+            left = end - asyncio.get_running_loop().time()
+            if left <= 0:
+                break
             try:
-                data = await asyncio.wait_for(one(server), timeout)
+                data = await asyncio.wait_for(one(server, end), left)
             except Exception:
                 continue
             if data:

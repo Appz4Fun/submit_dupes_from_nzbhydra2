@@ -679,3 +679,20 @@ def test_connection_lost_during_a_body_keeps_the_batch_stat_answers():
             await pools[0].close()
     h = asyncio.run(run())
     assert h.present >= 7                                            # the STATs answered before the drop count
+
+
+def test_fetch_body_keeps_one_deadline_across_servers(monkeypatch):
+    # Codex review (PR 1): the timeout applied to each server in turn, so N stalled servers took N times as long
+    import asyncio, time as _time
+    import donor_health as dh
+
+    class Stall:
+        def try_take(self):
+            return False
+
+        def give_back(self):
+            pass
+    monkeypatch.setattr(dh, "_slots", lambda server: Stall())
+    t = _time.time()
+    assert dh.fetch_body(["a", "b", "c"], "<x@y>", timeout=0.3) is None
+    assert _time.time() - t < 0.6

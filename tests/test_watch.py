@@ -576,10 +576,10 @@ def test_a_pick_whose_search_found_no_donors_is_searched_again_later(make_proxy,
 RENAMED = "Show S01E01 1080p WEB H264"  # an indexer's name for it: no group, so not "the same release"
 
 
-def test_a_failing_pick_with_no_whole_donor_is_swapped_for_an_obfuscated_posting_of_it(make_proxy, nzbget, hydra,
-                                                                                         tmp_path):
-    # live (How to Make a Killing, nzbid 8188): the pick sampled 50% and no posting by its name was fetched;
-    # postings of the same files that an indexer lists under another name were never looked at
+def test_a_failing_pick_never_takes_an_obfuscated_posting_it_cannot_look_inside(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): as many files of about the same size is no proof: another encode of the episode can
+    # look the same from outside. Without the packed file read from both, the pick fails rather than turn
+    # into something else
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
     hydra.add(RENAMED, other)
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
@@ -587,9 +587,7 @@ def test_a_failing_pick_with_no_whole_donor_is_swapped_for_an_obfuscated_posting
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    (d,) = nzbget.appends
-    assert base64.b64decode(d["params"][1]) == other
-    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+    assert not nzbget.appends
 
 
 def test_a_whole_pick_never_takes_an_obfuscated_posting(make_proxy, nzbget, hydra, tmp_path):
@@ -708,6 +706,111 @@ def test_a_donor_with_the_picks_data_files_is_hinted_dupe_same_size(make_proxy, 
 def test_a_donor_whose_packed_file_matches_is_hinted_dupe_same_inner(make_proxy, nzbget, hydra, tmp_path):
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+
+
+def test_the_lenient_pass_keeps_max_donors_for_the_whole_release(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass counted from 0 again, so MAX_DONORS=1 could add two donors
+    from tests.fakes import rar5_head
+    pick, half, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(TITLE, half)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(half, 0.6) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 1
+
+
+def test_a_lenient_donor_never_ties_a_backup_ranked_in_the_first_pass(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass drew scores from a fresh Ranks, so it could hand out a score a
+    # backup ranked in the first pass already holds: a tie has no failover order
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    ranked = [v for k, v in scores.items() if k != 500]
+    assert len(ranked) >= 2 and len(set(ranked)) == len(ranked), scores
+
+
+MOVIE = "Quiet.Harbour.1080p.WEB.H264-GRP"   # no year or episode: short_query() has nothing to cut at
+
+
+def test_the_lenient_pass_also_searches_by_title_alone(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): with no episode/year marker the lenient pass sent only the full-name query again,
+    # so a posting listed under another name could never come back
+    from tests.fakes import rar5_head
+    pick, other = release(MOVIE, prefix="p"), _with_pars(MOVIE, "r", 10000000)
+    hydra.add("Quiet Harbour 1080p WEB", other)
+    payloads = {"p-0-0@x": rar5_head(MOVIE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick, name=MOVIE)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+
+
+def test_a_truncated_pick_is_compared_by_its_whole_size():
+    # Codex review (PR 1): a pick whose NZB lists 40% of its parts was compared by its listed bytes, so a whole
+    # obfuscated repost (2.5 times as big) fell outside the 1% gate before its rar could be read
+    import dataclasses
+    info = dataclasses.replace(ndp.parse_nzb(release(TITLE, prefix="p")), listed=0.4)
+    whole = type("R", (), {"title": "a8f3c9e1b7d24f60", "size": round(info.total_bytes / 0.4)})()
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, whole, 0, True)
+    assert ndp.candidate_ok(TITLE, ndp.whole_bytes(info), whole, 0, True)
+
+
+def test_reading_a_packed_file_stops_at_the_discovery_deadline(make_proxy, monkeypatch):
+    # Codex review (PR 1): each head read waited 30 s per server whatever the deadline, so a stalled server
+    # kept a failing pick's rescue running for minutes past DEADLINE
+    import time as _time
+    waits = []
+    monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda servers, sid, timeout=30.0, sized=False:
+                        waits.append(timeout))
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    assert p.inner(["srv"], info, _time.time() - 1) is None and waits == []
+    p.inner(["srv"], ndp.parse_nzb(release(TITLE, prefix="q")), _time.time() + 5)
+    assert waits and max(waits) <= 5
+
+
+def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_try(make_proxy, nzbget, hydra,
+                                                                                     tmp_path):
+    # Codex review (PR 1): with MAX_DONORS=1 three dead postings by the pick's name took all three fetch slots
+    # again in the lenient pass, so the whole renamed posting was never fetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_the_lenient_pass_never_grabs_a_posting_twice(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): only the first four fetched postings were remembered, so the lenient pass grabbed
+    # the rest again
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(6):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
     hydra.add(RENAMED, other)
     payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
@@ -729,3 +832,154 @@ def test_a_hydra_off_file_in_the_state_dir_stops_every_request_to_hydra(make_pro
     p.watch_once()
     p.wait_idle(20)
     assert not hydra.queries and not hydra.fetches and not nzbget.appends
+
+
+    grabs = [f.split("?")[0] for f in hydra.fetches]
+    assert len(grabs) == len(set(grabs)), grabs
+
+
+def test_a_posting_the_first_pass_rejected_by_name_is_looked_inside_by_the_lenient_pass(make_proxy, nzbget, hydra,
+                                                                                         tmp_path):
+    # Codex review (PR 1): listed by the pick's own name, its files name no group, so the first pass rejected
+    # it as another release; the lenient pass then skipped it, though the mkv inside is the pick's
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264", prefix="r")
+    hydra.add(TITLE, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+    assert len(hydra.fetches) == 1                                  # looked at again, not grabbed again
+
+
+def test_a_lenient_donor_less_whole_than_a_backup_ranks_below_it(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass ranked the backups again under fresh scores while its donors were
+    # raised to their own, so an 85% donor could outrank a 90% backup
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.7),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    (d,) = nzbget.appends
+    assert scores[502] > scores[d["id"]], scores
+
+
+def test_reranking_never_lands_a_donor_on_a_backups_score(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): rerank() raised a lenient donor to its target score, which a backup ranked in the
+    # first pass held: a tie, with no failover order
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.85),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    (d,) = nzbget.appends
+    assert scores[502] != scores[d["id"]], scores
+
+
+def test_rerank_keeps_every_score_it_hands_out_reserved(make_proxy):
+    # Codex review (PR 1): swapping two donors' scores released each old score one by one, freeing a score
+    # the other donor had just taken
+    p = _watcher(make_proxy)
+    ranks = ndp.Ranks()
+    ranks.used |= {80, 81}
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": TITLE, "indexer": "i", "grabs": 0})()
+    a = ndp.Placed(1, 80, 0.95, False, (r, b"", info))
+    b = ndp.Placed(2, 81, 0.90, False, (r, b"", info))
+    p.set_score = lambda *args, **kw: True
+    p.rerank("/jsonrpc", "", [a, b], lambda size: 0, __import__("collections").Counter(), ranks)
+    assert {a.score, b.score} <= ranks.used and a.score != b.score
+
+
+def test_a_failed_head_read_is_tried_again_by_a_later_search(make_proxy, monkeypatch):
+    # Codex review (PR 1): a read that failed (server down) was cached as "no inner file" for good
+    from tests.fakes import rar5_head
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda *a, **kw: None)
+    assert p.inner(["srv"], info) is None
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda *a, **kw: (rar5_head(TITLE + ".mkv", 13999000), None))
+    assert p.inner(["srv"], info) == ("mkv", 13999000)
+
+
+def test_the_lenient_pass_searches_the_episode_without_its_resolution(make_proxy):
+    # Codex review (PR 1): every query kept "1080p", so a listing named "Show S01E01 WEB H264" never came back
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    assert {"t": "search", "q": "show s01e01"} in p.queries(TITLE, info, lenient=True)
+    assert {"t": "search", "q": "show s01e01"} not in p.queries(TITLE, info)
+
+
+def test_a_cached_posting_is_found_by_any_of_its_listings(make_proxy):
+    # Codex review (PR 1): a renamed listing that joined an already fetched posting's group led it, so the cache
+    # missed and the posting was grabbed again
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link})()  # noqa: E731
+    fetched = {"a": ("r", "ok", b"", None, None)}
+    p.fetch_posting = lambda listings, deadline: (_ for _ in ()).throw(AssertionError("grabbed again"))
+    assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
+    assert p.cached(fetched, [L("b"), L("a")])
+
+
+def test_a_cached_fetch_failure_tries_the_postings_other_listings(make_proxy):
+    # Codex review (PR 1): listing A failed in the first pass; B, another listing of that posting, joined in the
+    # lenient pass but the cached failure was returned without trying it
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link})()  # noqa: E731
+    fetched = {"a": ("ra", "fetch", None, None, None)}
+    tried = []
+    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
+    assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
+    assert tried == [["b"]]
+
+
+def test_a_partly_failed_head_read_is_not_cached(make_proxy, monkeypatch):
+    # Codex review (PR 1): one unreadable head plus one failed read was cached as "no inner file" for good
+    from tests.fakes import rar5_head
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    first = info.heads[0][0]
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else None)
+    assert p.inner(["srv"], info) is None
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else
+                        (rar5_head(TITLE + ".mkv", 13999000), None))
+    assert p.inner(["srv"], info) == ("mkv", 13999000)
+
+
+def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): an 80% first-pass donor kept its score above a 100% lenient donor, whose rerank
+    # only stepped around it
+    from tests.fakes import rar5_head
+    pick, part, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(TITLE, part)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(part, 0.8) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores, ids = nzbget.final_scores(), {base64.b64decode(a["params"][1]): a["id"] for a in nzbget.appends}
+    assert scores[ids[other]] > scores[ids[part]], scores

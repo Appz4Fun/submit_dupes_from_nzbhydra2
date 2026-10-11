@@ -305,3 +305,57 @@ def test_inner_file_of_a_bare_media_file_is_its_yenc_size():
 def test_inner_file_of_anything_else_is_unknown():
     assert ndp.inner_file(b"\x00" * 64, "a8f3c9e1.bin", 1000) is None
     assert ndp.inner_file(b"Rar!\x1a\x07\x01\x00garbage") is None
+
+
+def test_inner_file_skips_directory_headers_before_the_media_file():
+    # Codex review (PR 1): a RAR5 volume may start with directory entries (file flag 0x1, size 0)
+    from tests.fakes import rar5_head
+    assert ndp.inner_file(rar5_head("Show/Show.S01E01.mkv", 5000000000, dirs=("Show",))) == ("mkv", 5000000000)
+
+
+def test_whole_bytes_estimates_a_truncated_nzbs_full_size():
+    import dataclasses
+    i = parse_nzb(make_nzb([("f.part1.rar", [100] * 4)]))
+    assert ndp.whole_bytes(i) == 400
+    assert ndp.whole_bytes(dataclasses.replace(i, listed=0.4)) == 1000
+
+
+def test_inner_file_looks_past_sidecar_files_to_the_media_file():
+    # Codex review (PR 1): a readme ahead of the mkv made ('txt', 64) the release's identity
+    from tests.fakes import rar5_head
+    head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("readme.txt", b"x" * 64),))
+    assert ndp.inner_file(head) == ("mkv", 5000000000)
+
+
+def test_inner_file_of_an_archive_holding_no_media_file_up_front_is_unknown():
+    from tests.fakes import rar5_head
+    assert ndp.inner_file(rar5_head("notes.txt", 64)) is None
+
+
+def test_inner_file_reads_non_latin_names():
+    # Codex review (PR 1): the name length is in bytes, not characters
+    from tests.fakes import rar4_head, rar5_head
+    assert ndp.inner_file(rar5_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
+    assert ndp.inner_file(rar4_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
+
+
+def test_inner_file_reads_a_rar4_unicode_name_field():
+    # Codex review (PR 1): flag 0x200 puts an ANSI name, a NUL and an encoded Unicode name in the field
+    from tests.fakes import rar4_head
+    assert ndp.inner_file(rar4_head("Amelie.2001.mkv", 7000000000, unicode_name=True)) == ("mkv", 7000000000)
+
+
+def test_inner_file_gives_up_on_a_rar4_header_that_cannot_advance():
+    # Codex review (PR 1): header size 0, packed size 0 and a non-media name looped forever
+    import struct
+    body = struct.pack("<BHHIIBIIBBHI", 0x74, 0x8000, 0, 0, 0, 2, 0, 0, 29, 0x30, 5, 0x20) + b"a.txt"
+    data = b"Rar!\x1a\x07\x00" + b"\x00\x00" + body + b"\x00" * 64
+    assert ndp.inner_file(data) is None
+
+
+def test_inner_file_never_takes_a_sample_for_the_main_video():
+    # Codex review (PR 1): a sample.mkv ahead of the feature made equal samples look like the same release
+    from tests.fakes import rar5_head
+    head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("Show.S01E01-sample.mkv", b"s" * 64),))
+    assert ndp.inner_file(head) == ("mkv", 5000000000)
+    assert ndp.inner_file(rar5_head("Sample/show.sample.mkv", 64)) is None
