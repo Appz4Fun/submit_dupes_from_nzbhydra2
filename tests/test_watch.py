@@ -1176,3 +1176,15 @@ def test_rerank_never_raises_an_unchecked_backup(make_proxy):
     p.set_score = lambda *a, **kw: True
     p.rerank("/jsonrpc", "", [low], lambda size: 0, __import__("collections").Counter())
     assert low.score == 20
+
+
+def test_a_dry_run_donor_counts_once_across_both_passes(make_proxy):
+    # Codex review (PR 1): in dry run add_donor() recorded nothing, so the lenient pass counted the first pass's
+    # donor again and pushed a second one over MAX_DONORS
+    p = _watcher(make_proxy, dry_run=True)
+    p.ctx.dry_sent = set()
+    ci = ndp.parse_nzb(release(TITLE, prefix="r"))
+    r = type("R", (), {"title": TITLE, "indexer": "i", "grabs": 0})()
+    stats = __import__("collections").Counter()
+    assert p.add_donor("k", "", "/jsonrpc", "", (r, b"", ci), 80, {}, "fast", stats) == -1
+    assert p.add_donor("k", "", "/jsonrpc", "", (r, b"", ci), 80, {}, "fast", stats) == 0

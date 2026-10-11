@@ -1015,7 +1015,8 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
-        self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}  # the first pass's grabs and backup ranking, for the second
+        self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}
+        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes  # the first pass's grabs and backup ranking, for the second
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -1626,6 +1627,12 @@ class Proxy:
         desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s] (%s)" % (
             score + self.base(), r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
         if self.cfg.dry_run:
+            sent = getattr(self.ctx, "dry_sent", None)
+            if sent is not None and ci.fingerprint in sent:  # the lenient pass meeting a first-pass donor again
+                stats["already-sent"] += 1
+                return 0
+            if sent is not None:
+                sent.add(ci.fingerprint)
             log.info("DRY-RUN would add donor %s", desc)
             return -1
         with self.state.lock:
