@@ -696,3 +696,20 @@ def test_fetch_body_keeps_one_deadline_across_servers(monkeypatch):
     t = _time.time()
     assert dh.fetch_body(["a", "b", "c"], "<x@y>", timeout=0.3) is None
     assert _time.time() - t < 0.6
+
+
+def test_fetch_body_gives_every_server_a_turn_within_the_deadline(monkeypatch):
+    # Codex review (PR 1): the first server stalling used up the whole budget, so the second was never asked
+    import asyncio, time as _time
+    import donor_health as dh
+    asked = []
+
+    async def one_stub(server, deadline, *rest):
+        asked.append(server)
+        if server == "slow":
+            await asyncio.sleep(10)
+        return b"data"
+    monkeypatch.setattr(dh, "_fetch_one_body", one_stub, raising=False)
+    t = _time.time()
+    assert dh.fetch_body(["slow", "fast"], "<x@y>", timeout=1.0) == b"data"
+    assert asked == ["slow", "fast"] and _time.time() - t < 1.5

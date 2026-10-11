@@ -505,6 +505,10 @@ def conflicts(a_name, b_name):
     a, b = release_attrs(a_name), release_attrs(basename(b_name))
     if a["year"] and b["year"] and a["year"] != b["year"]:
         return True
+    if any(b[k] and not a[k] for k in ("repack", "proper")):
+        return True
+    if any(a[k] and b[k] and not (a[k] <= b[k] or b[k] <= a[k]) for k in ("codec", "quality")):
+        return True  # another codec or source (WEB vs WEB-DL compatible, WEB vs BluRay not)
     return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
 
 
@@ -1361,6 +1365,8 @@ class Proxy:
             score = ranks.take(None)
             if _int(x.get("DupeScore")) <= score + base:  # already in or below the ranked band: never raise
                 ranks.release(score)
+                if _int(x.get("DupeScore")) - base > 1:  # in the band: the final rerank still places it
+                    unchecked[_int(x.get("NZBID"))] = _int(x.get("DupeScore")) - base
                 continue
             if self.set_score(path, auth, _int(x.get("NZBID")), score):
                 unchecked[_int(x.get("NZBID"))] = score

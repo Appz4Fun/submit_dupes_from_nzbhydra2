@@ -1134,3 +1134,15 @@ def test_an_unchecked_backup_stays_below_checked_ones_in_the_combined_ranking(ma
     everyone = donors + checked + [unchecked]
     p.rerank("/jsonrpc", "", everyone, lambda size: 0, __import__("collections").Counter())
     assert unchecked.score < min(x.score for x in donors + checked)
+
+
+@pytest.mark.parametrize("name", ["Show.S01E01.1080p.WEB.H265-GRP.mkv", "Show.S01E01.REPACK.1080p.WEB.H264-GRP.mkv",
+                                  "Show.S01E01.1080p.BluRay.H264-GRP.mkv"])
+def test_another_codec_source_or_repack_conflicts(name):
+    # Codex review (PR 1): H265 or REPACK named inside passed for an H264, non-REPACK pick
+    assert ndp.conflicts(TITLE, name)
+
+
+def test_the_same_attributes_named_differently_do_not_conflict():
+    assert not ndp.conflicts(TITLE, "Show.S01E01.1080p.WEB-DL.x264.mkv")
+    assert not ndp.conflicts(TITLE, "a8f3c9e1b7d24f60.mkv")
