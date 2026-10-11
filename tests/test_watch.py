@@ -1345,3 +1345,28 @@ def test_the_lenient_pass_shares_the_first_passs_deadline_and_fetch_budget(make_
     p.watch_once()
     p.wait_idle(30)
     assert len(hydra.fetches) <= 3, hydra.fetches
+
+
+def test_a_real_title_with_digits_is_no_hash():
+    # Codex review (PR 3): "13.Reasons.Why" collapsed to "13reasonswhy" and read as a hash
+    assert not ndp.hashlike("13.Reasons.Why.S01E01.1080p.WEB.H264-GRP.mkv")
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p")
+    assert ndp.other_title(TITLE, "13.Reasons.Why.S01E01.1080p.WEB.H264-GRP.mkv")
+
+
+def test_cooldown_skips_cost_no_fetch_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): postings skipped on an indexer's cooldown counted as spent grabs, so the lenient pass
+    # had no budget left for a whole renamed posting elsewhere
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1), indexer="cold")
+    hydra.add(RENAMED, other, indexer="warm")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]

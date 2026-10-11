@@ -490,8 +490,8 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
 
 def hashlike(name):
     """Is the name's title an obfuscated hash (letters and digits run together, 12+ long), whatever tags follow?"""
-    t = release_attrs(basename(name))["title"]
-    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-z])[a-z0-9]{12,}", t))
+    first = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)[0]  # before any separator
+    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-z])[a-z0-9]{12,}", first))
 
 
 def basename(name):
@@ -1106,7 +1106,7 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                spent = len({id(v) for v in fetched.values()})  # postings the earlier pass already grabbed
+                spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
                 order = [g for g in order if self.cached(fetched, g)] + \
                     [g for g in order if not self.cached(fetched, g)][:max(0, 3 * cfg.max_donors - spent)]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
