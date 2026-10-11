@@ -327,8 +327,8 @@ def _rar4_file(data):
             if flags & 0x200:                 # Unicode name: an ANSI name, a NUL, then the encoded Unicode one
                 raw = raw.split(b"\x00", 1)[0]
             name = raw.decode("utf-8", "replace")
-            if is_media(name):
-                return name, unpacked
+            if is_media(name):  # all ones: RAR4's "unpacked size unknown", no identity
+                return None if unpacked in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF) else (name, unpacked)
             packed = int.from_bytes(data[i + 7:i + 11], "little") | (
                 int.from_bytes(data[i + 32:i + 36], "little") << 32 if flags & 0x100 else 0)
             i += size + packed                # a sidecar: the media file comes later

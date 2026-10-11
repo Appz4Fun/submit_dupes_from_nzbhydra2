@@ -359,3 +359,10 @@ def test_inner_file_never_takes_a_sample_for_the_main_video():
     head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("Show.S01E01-sample.mkv", b"s" * 64),))
     assert ndp.inner_file(head) == ("mkv", 5000000000)
     assert ndp.inner_file(rar5_head("Sample/show.sample.mkv", 64)) is None
+
+
+def test_inner_file_of_a_rar4_volume_with_an_unknown_size_is_unknown():
+    # Codex review (PR 1): RAR4 marks an unknown unpacked size with all ones; it is no identity
+    from tests.fakes import rar4_head
+    assert ndp.inner_file(rar4_head("Movie.mkv", 0xFFFFFFFF)) is None
+    assert ndp.inner_file(rar4_head("Movie.mkv", 0xFFFFFFFFFFFFFFFF)) is None
