@@ -490,6 +490,20 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
+class FetchBudget:
+    """The downloads a release's search may still make (shared by the fetch threads)."""
+
+    def __init__(self, left):
+        self.left, self.lock = max(0, left), threading.Lock()
+
+    def take(self):
+        with self.lock:
+            if self.left <= 0:
+                return False
+            self.left -= 1
+            return True
+
+
 def downloads(fetched):
     """Indexer grabs behind a release's cached fetch_posting() results (each posting once, every listing it
     downloaded counted)."""
@@ -1038,18 +1052,6 @@ class Proxy:
         fresh = any(r.link not in fetched for r in listings)
         return not fresh or hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
 
-    def within_budget(self, fetched, listings, left):
-        """A posting's listings cut to what `left` downloads allow: its cached ones, then at most `left` fresh
-        ones on indexers not cooling down."""
-        now, out, fresh = time.time(), [], 0
-        for r in listings:
-            if r.link in fetched:
-                out.append(r)
-            elif fresh < left and self.refused.get(r.indexer, 0) <= now:
-                out.append(r)
-                fresh += 1
-        return out
-
     @staticmethod
     def cached_only(fetched, listings):
         """The listings of a posting that were already fetched: looking at them again costs no grab."""
@@ -1060,7 +1062,7 @@ class Proxy:
         """The earlier result for a posting any of whose listings this release already fetched, else None."""
         return next((fetched[r.link] for r in listings if r.link in fetched), None)
 
-    def fetch_once(self, fetched, listings, deadline):
+    def fetch_once(self, fetched, listings, deadline, budget=None):
         """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, under every one of
         its listings' links) is looked at again, not grabbed again."""
         hit = self.cached(fetched, listings)
@@ -1069,22 +1071,40 @@ class Proxy:
         if hit is not None and (settled or not fresh):
             return hit[:4] + (Counter(),)
         if hit is not None:  # the earlier listings failed or served another NZB: try the ones not asked yet
-            got = self.fetch_posting(fresh, deadline)
+            got = self.fetch_posting(fresh, deadline, budget)
             if got[1] != "ok" and hit[1] == "ok":
                 got = hit[:4] + (got[4],)  # nothing better: keep the earlier (mismatched) one
-            fetched.update((r.link, got) for r in fresh)
+            self.remember(fetched, listings if got[1] == "ok" else fresh, got)
             return got
-        got = self.fetch_posting(listings, deadline)
-        fetched.update((r.link, got) for r in listings)
+        got = self.fetch_posting(listings, deadline, budget)
+        self.remember(fetched, listings, got)
         return got
 
-    def fetch_posting(self, listings, deadline):
+    @staticmethod
+    def remember(fetched, listings, got):
+        """Cache a fetch_posting() result under the links it covers; a fetch cut off by the budget isn't one (a
+        later pass with budget left may try those listings), and a success covers every listing of its posting;
+        a failure is cached only under the listings fetch_posting() really asked."""
+        tried = {k[1] for k in (got[4] or {}) if isinstance(k, tuple) and k[0] == "tried"}
+        for r in listings:
+            if got[1] == "ok":
+                fetched[r.link] = got  # a success covers every listing of its posting
+            elif r.link in tried and r.link not in fetched:
+                fetched[r.link] = got  # a failure only the listings that were asked
+
+    def fetch_posting(self, listings, deadline, budget=None):
         """One NZB of a posting listed by several indexers: its listings in turn until one serves an NZB of its
         listed size (an indexer may serve another indexer's NZB for a listing; that one is kept only if no
         listing serves the posting itself). -> (Result, reason, data, NzbInfo, Counter of the attempts)."""
         stats, last, other = Counter(), (listings[0], "fetch", None, None), None
         for j, r in enumerate(listings):
+            if budget is not None and not budget.take():
+                stats["over-budget"] += 1  # 3 * MAX_DONORS downloads spent for this release
+                if last[1] == "fetch" and other is None and not stats["downloaded"]:
+                    last = (r, "budget", None, None)
+                break
             reason, data, ci = self.fetch(r, deadline)
+            stats[("tried", r.link)] = 1  # remember() caches failures only under the listings really tried
             if reason != "refused":
                 stats["downloaded"] += 1  # an indexer grab, whatever it served
             if reason == "ok" and not listing_mismatch(r, ci):
@@ -1178,41 +1198,20 @@ class Proxy:
                         paid.append(g)  # a fresh listing on an indexer not cooling down: a fetch, so a slot
                     elif self.cached(fetched, g):
                         cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
-                # the cache costs no fetch: before the paid ones, which are cut to the budget chunk by chunk
-                order = free + cache_only + [("paid", g) for g in paid]
+                order = free + cache_only + paid  # the cache costs no fetch: before the paid ones
+            # 3 * MAX_DONORS downloads per release, both passes together: each listing download takes one, so a
+            # posting whose first listing serves its NZB leaves the rest to the postings after it
+            budget = FetchBudget(3 * cfg.max_donors - downloads(fetched)) if cfg.max_donors > 0 else None
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
-            queue = list(order)
-            while queue:  # fetch the whole (capped) order: health may drop some later
+            for i in range(0, len(order), 4):  # fetch the whole order: health may drop some later
                 if time.time() > deadline:
-                    stats["deadline"] += len(queue)
+                    stats["deadline"] += len(order) - i
                     break
-                # the budget left after what was really downloaded so far: a posting whose first listing served
-                # its NZB leaves the rest of its reservation to the next chunk
-                left = 3 * cfg.max_donors - downloads(fetched) if cfg.max_donors > 0 else None
-                chunk, deferred = [], []  # deferred: no budget in this chunk, maybe after its real cost is known
-                while queue and len(chunk) < 4:
-                    g = queue.pop(0)
-                    if not (isinstance(g, tuple) and g[0] == "paid"):
-                        chunk.append(g)
-                        continue
-                    cut = self.within_budget(fetched, g[1], max(0, left))
-                    fresh = sum(r.link not in fetched for r in cut)
-                    if fresh:
-                        chunk.append(cut)
-                        left -= fresh
-                        if len(cut) < len(g[1]):  # cut short by the budget: its other listings wait for the real cost
-                            deferred.append(g)
-                    elif self.cached(fetched, g[1]):
-                        chunk.append(self.cached_only(fetched, g[1]))  # no budget left: its cache, no fetch
-                    else:
-                        deferred.append(g)
-                queue[:0] = deferred  # back at the front: the next chunk recomputes the budget from real downloads
-                if not chunk:
-                    break  # nothing left that fits the budget, even after every chunk's real cost
+                chunk = order[i:i + 4]
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
-                                                                       [deadline] * len(chunk)):
-                    stats.update({k: n for k, n in attempts.items() if k != "downloaded"})  # a cost, not a rejection
+                                                                       [deadline] * len(chunk), [budget] * len(chunk)):
+                    stats.update({k: n for k, n in attempts.items() if isinstance(k, str) and k != "downloaded"})
                     if reason != "ok":
                         continue
                     if listing_mismatch(r, ci):

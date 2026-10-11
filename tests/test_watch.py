@@ -952,7 +952,7 @@ def test_a_cached_fetch_failure_tries_the_postings_other_listings(make_proxy):
     L = lambda link: type("R", (), {"link": link})()  # noqa: E731
     fetched = {"a": ("ra", "fetch", None, None, None)}
     tried = []
-    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
+    p.fetch_posting = lambda listings, deadline, budget=None: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
     assert tried == [["b"]]
 
@@ -1042,7 +1042,7 @@ def test_a_cached_nzb_that_did_not_match_its_listing_lets_fresh_listings_be_trie
     fetched = {"a": (L("a"), "ok", b"", wrong, None)}
     tried = []
     right = type("I", (), {"total_bytes": 1000})()
-    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or (listings[0], "ok", b"",
+    p.fetch_posting = lambda listings, deadline, budget=None: tried.append([r.link for r in listings]) or (listings[0], "ok", b"",
                                                                                             right, None)
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[3] is right
     assert tried == [["b"]]
@@ -1486,14 +1486,16 @@ def test_a_digest_listing_is_checked_for_conflicts_by_its_tags_only():
     assert ndp.candidate_ok("Quiet.Harbour.2023.1080p.WEB.H264-GRP", info.total_bytes, r, 0, True)
 
 
-def test_the_budget_trims_a_postings_fresh_listings(make_proxy):
-    # Codex review (PR 3): with one download left a posting with two fresh listings could fetch both
+def test_the_budget_stops_a_posting_s_listings_once_spent(make_proxy, monkeypatch):
+    # Codex review (PR 3): each listing download takes one from the release's budget, as it happens
     p = _watcher(make_proxy)
-    R = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i"})()  # noqa: E731
-    assert [r.link for r in p.within_budget({}, [R("a"), R("b")], 1)] == ["a"]
-    assert [r.link for r in p.within_budget({"c": ("x", "fetch", None, None, None)}, [R("c"), R("a"), R("b")], 1)] \
-        == ["c", "a"]
-
+    L = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i", "title": TITLE})()  # noqa: E731
+    asked = []
+    monkeypatch.setattr(p, "fetch", lambda r, deadline, retries=1: asked.append(r.link) or ("fetch", None, None))
+    fetched, budget = {}, ndp.FetchBudget(1)
+    got = p.fetch_once(fetched, [L("a"), L("b")], 0, budget)
+    assert asked == ["a"] and got[4]["downloaded"] == 1
+    assert "a" in fetched and "b" not in fetched                    # b was never asked: a later pass may try it
 
 def test_a_digest_followed_by_standard_tags_is_still_obfuscated():
     # Codex review (PR 3): PTT read "remux" as the suffix's title
