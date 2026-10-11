@@ -1174,6 +1174,8 @@ class Proxy:
         theirs_unchecked = [Placed(bid, sc, None, False, None, sizes.get(bid, 0), True)
                             for bid, sc in checked_backups.get("unchecked", {}).items()]
         self.rerank(path, auth, self.ctx.placed + theirs + theirs_unchecked, dist, stats, ranks)
+        for u in theirs_unchecked:  # the next pass starts from these scores, not the stale ones
+            checked_backups.setdefault("unchecked", {})[u.id] = u.score
         for b in theirs:
             kept[b.id] = (b.score, b.alive, False)
             for tid in checked_backups.get("twins", {}).get(b.id, ()):  # the same NZB keeps its sibling's rank
