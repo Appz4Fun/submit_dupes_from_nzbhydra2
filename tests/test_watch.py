@@ -1411,3 +1411,18 @@ def test_a_cached_group_with_fresh_listings_to_try_costs_budget(make_proxy):
     assert not p.free(fetched, [L("b"), L("a")])                    # will fetch b: costs a slot
     assert p.free(fetched, [L("a")])                                # nothing new to fetch
     assert p.free(fetched, [L("t"), L("s")])                        # settled: looked at again, no fetch
+
+
+def test_a_digest_followed_by_a_title_is_no_obfuscated_listing():
+    # Codex review (PR 3): "a8f3c9e1b7d24f60.The.Matrix.Reloaded.1080p" names a title after the digest
+    assert not ndp.hashlike("a8f3c9e1b7d24f60.The.Matrix.Reloaded.1080p")
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p.WEB.H264")
+
+
+def test_a_cached_nzb_is_still_looked_at_once_the_budget_is_spent(make_proxy):
+    # Codex review (PR 3): past the budget, a cached group with a new listing was dropped instead of looked at
+    # again from the cache
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
+    fetched = {"a": (L("a"), "ok", b"", type("I", (), {"total_bytes": 5000})(), None)}
+    assert [r.link for r in p.cached_only(fetched, [L("b"), L("a")])] == ["a"]

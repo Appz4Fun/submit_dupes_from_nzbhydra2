@@ -495,7 +495,9 @@ def hashlike(name):
     first, rest = parts[0], parts[1] if len(parts) > 1 else ""  # the digest, then whatever tags follow it
     a = release_attrs(rest) if rest else {"seasons": (), "episodes": (), "year": None}
     if a["seasons"] or a["episodes"] or a["year"]:  # only the tags after the digest (its digits are no year)
-        return False  # it names an episode or year: a real title, not an obfuscated listing
+        return False
+    if rest and release_attrs(rest)["title"] not in ("", release_attrs(rest)["group"]):
+        return False  # a title follows the digest: it names a release  # it names an episode or year: a real title, not an obfuscated listing
     return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first))  # a hex digest
 
 
@@ -1013,6 +1015,11 @@ class Proxy:
         return not fresh or hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
 
     @staticmethod
+    def cached_only(fetched, listings):
+        """The listings of a posting that were already fetched: looking at them again costs no grab."""
+        return [r for r in listings if r.link in fetched]
+
+    @staticmethod
     def cached(fetched, listings):
         """The earlier result for a posting any of whose listings this release already fetched, else None."""
         return next((fetched[r.link] for r in listings if r.link in fetched), None)
@@ -1123,8 +1130,10 @@ class Proxy:
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
                 spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
-                order = [g for g in order if self.free(fetched, g)] + \
-                    [g for g in order if not self.free(fetched, g)][:max(0, 3 * cfg.max_donors - spent)]
+                paid = [g for g in order if not self.free(fetched, g)]
+                left = max(0, 3 * cfg.max_donors - spent)
+                order = [g for g in order if self.free(fetched, g)] + paid[:left] + \
+                    [self.cached_only(fetched, g) for g in paid[left:] if self.cached(fetched, g)]  # no budget: cache only
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
