@@ -359,14 +359,14 @@ def rar5_head(name, size, dirs=(), sidecars=()):
     return b"Rar!\x1a\x07\x01\x00" + block(main) + heads + block(filehdr) + b"\x00" * 64
 
 
-def rar4_head(name, size):
+def rar4_head(name, size, unicode_name=False):
     """The start of a RAR4 volume: marker, archive header, and the file header of `name` (`size` unpacked)."""
     import binascii, struct
-    n = name.encode()
+    n = name.encode("latin-1", "replace") + b"\x00" + b"\x01\x02junk" if unicode_name else name.encode()
     main = struct.pack("<BHH", 0x73, 0, 13) + b"\x00" * 6
     main = struct.pack("<H", binascii.crc32(main) & 0xFFFF) + main
     big = size >= 1 << 32
-    flags = 0x8000 | (0x100 if big else 0)
+    flags = 0x8000 | (0x100 if big else 0) | (0x200 if unicode_name else 0)
     hsize = 32 + (8 if big else 0) + len(n)
     body = struct.pack("<BHHIIBIIBBHI", 0x74, flags, hsize, size & 0xFFFFFFFF, size & 0xFFFFFFFF, 2, 0, 0, 29, 0x30,
                        len(n), 0x20)

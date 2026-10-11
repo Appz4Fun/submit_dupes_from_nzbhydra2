@@ -337,3 +337,17 @@ def test_inner_file_reads_non_latin_names():
     from tests.fakes import rar4_head, rar5_head
     assert ndp.inner_file(rar5_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
     assert ndp.inner_file(rar4_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
+
+
+def test_inner_file_reads_a_rar4_unicode_name_field():
+    # Codex review (PR 1): flag 0x200 puts an ANSI name, a NUL and an encoded Unicode name in the field
+    from tests.fakes import rar4_head
+    assert ndp.inner_file(rar4_head("Amelie.2001.mkv", 7000000000, unicode_name=True)) == ("mkv", 7000000000)
+
+
+def test_inner_file_gives_up_on_a_rar4_header_that_cannot_advance():
+    # Codex review (PR 1): header size 0, packed size 0 and a non-media name looped forever
+    import struct
+    body = struct.pack("<BHHIIBIIBBHI", 0x74, 0x8000, 0, 0, 0, 2, 0, 0, 29, 0x30, 5, 0x20) + b"a.txt"
+    data = b"Rar!\x1a\x07\x00" + b"\x00\x00" + body + b"\x00" * 64
+    assert ndp.inner_file(data) is None

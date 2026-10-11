@@ -775,3 +775,77 @@ def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_
     p.watch_once()
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
+
+
+def test_the_lenient_pass_never_grabs_a_posting_twice(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): only the first four fetched postings were remembered, so the lenient pass grabbed
+    # the rest again
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(6):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    grabs = [f.split("?")[0] for f in hydra.fetches]
+    assert len(grabs) == len(set(grabs)), grabs
+
+
+def test_a_posting_the_first_pass_rejected_by_name_is_looked_inside_by_the_lenient_pass(make_proxy, nzbget, hydra,
+                                                                                         tmp_path):
+    # Codex review (PR 1): listed by the pick's own name, its files name no group, so the first pass rejected
+    # it as another release; the lenient pass then skipped it, though the mkv inside is the pick's
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release("Show.S01E01.1080p.WEB.H264", prefix="r")
+    hydra.add(TITLE, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+    assert len(hydra.fetches) == 1                                  # looked at again, not grabbed again
+
+
+def test_a_lenient_donor_less_whole_than_a_backup_ranks_below_it(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass ranked the backups again under fresh scores while its donors were
+    # raised to their own, so an 85% donor could outrank a 90% backup
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.7),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    (d,) = nzbget.appends
+    assert scores[502] > scores[d["id"]], scores
+
+
+def test_reranking_never_lands_a_donor_on_a_backups_score(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): rerank() raised a lenient donor to its target score, which a backup ranked in the
+    # first pass held: a tie, with no failover order
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + _part(other, 0.85),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    (d,) = nzbget.appends
+    assert scores[502] != scores[d["id"]], scores

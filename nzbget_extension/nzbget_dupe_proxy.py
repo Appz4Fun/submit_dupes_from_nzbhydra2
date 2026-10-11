@@ -307,6 +307,8 @@ def _rar4_file(data):
         kind, flags, size = data[i + 2], int.from_bytes(data[i + 3:i + 5], "little"), \
             int.from_bytes(data[i + 5:i + 7], "little")
         if kind == 0x74:
+            if size < 32:                     # too short for a file header: corrupt (and it would not advance)
+                return None
             unpacked = int.from_bytes(data[i + 11:i + 15], "little")
             n = int.from_bytes(data[i + 26:i + 28], "little")
             j = i + 32
@@ -316,6 +318,8 @@ def _rar4_file(data):
             raw = data[j:j + n]
             if len(raw) < n or not n:
                 return None
+            if flags & 0x200:                 # Unicode name: an ANSI name, a NUL, then the encoded Unicode one
+                raw = raw.split(b"\x00", 1)[0]
             name = raw.decode("utf-8", "replace")
             if MEDIA_RE.search(name):
                 return name, unpacked
@@ -920,6 +924,15 @@ class Proxy:
                 time.sleep(FETCH_RETRY_DELAY)
         return reason, None, None, status
 
+    def fetch_once(self, fetched, listings, deadline):
+        """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, by its first
+        listing's link) is looked at again, not grabbed again."""
+        hit = fetched.get(listings[0].link)
+        if hit is not None:
+            return hit[:4] + (Counter(),)
+        got = fetched[listings[0].link] = self.fetch_posting(listings, deadline)
+        return got
+
     def fetch_posting(self, listings, deadline):
         """One NZB of a posting listed by several indexers: its listings in turn until one serves an NZB of its
         listed size (an indexer may serve another indexer's NZB for a listing; that one is kept only if no
@@ -939,7 +952,8 @@ class Proxy:
         return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
-        added, self.ctx.unrescued, ranks, self.ctx.tried = 0, False, Ranks(), set()  # one Ranks: both passes draw distinct scores
+        added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
+        self.ctx.fetched, self.ctx.backups = {}, None  # the first pass's grabs and backup ranking, for the second
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -969,10 +983,15 @@ class Proxy:
         cap = cfg.donor_cap - prior
         # the submitter's own backups (already in nzbget's history) get the same health ranking as donors
         checked_backups = {}  # rank_backups fills in "ranked" and "pick": the swap waits for the donors too
-        backups = threading.Thread(target=self.rank_backups, daemon=True,
-                                   args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
-                                         info.message_ids if nzbid > 0 else None, checked_backups,
-                                         info.total_bytes, info.listed))
+        if lenient and getattr(self.ctx, "backups", None) is not None:  # ranked by the first pass: ranking them again would draw
+            checked_backups = self.ctx.backups          # them new scores below the ones Ranks still reserves
+            backups = threading.Thread(target=lambda: None, daemon=True)
+        else:
+            backups = threading.Thread(target=self.rank_backups, daemon=True,
+                                       args=(servers, path, auth, key, title, abs(nzbid), ranks, stats, base,
+                                             info.message_ids if nzbid > 0 else None, checked_backups,
+                                             info.total_bytes, info.listed))
+            self.ctx.backups = checked_backups
         backups.start()
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
@@ -985,10 +1004,10 @@ class Proxy:
                     stats["deadline"] += 1
                 except Exception as e:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
-            if getattr(self.ctx, "tried", None) is None:
-                self.ctx.tried = set()
-            tried = self.ctx.tried  # links fetched by this release's earlier pass: the lenient pass skips them
-            cands = sorted((r for r in results.values() if r.link and (not lenient or r.link not in tried) and candidate_ok(
+            if getattr(self.ctx, "fetched", None) is None:
+                self.ctx.fetched = {}
+            fetched = self.ctx.fetched  # first listing's link -> fetch_posting() result, kept for the second pass
+            cands = sorted((r for r in results.values() if r.link and candidate_ok(
                 title, whole_bytes(info) if lenient else info.total_bytes, r, cfg.size_tolerance, lenient)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             rank = {id(r): i for i, r in enumerate(cands)}
             # postings (each listed by one or more indexers; most grabbed listing first), best listing first,
@@ -997,8 +1016,9 @@ class Proxy:
                            key=lambda g: rank[id(g[0])])
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
-            if cfg.max_donors > 0:  # each fetch costs an indexer grab
-                order = order[:3 * cfg.max_donors]
+            if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
+                order = [g for g in order if g[0].link in fetched] + \
+                    [g for g in order if g[0].link not in fetched][:3 * cfg.max_donors]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
@@ -1006,9 +1026,9 @@ class Proxy:
                     stats["deadline"] += len(order) - i
                     break
                 chunk = order[i:i + 4]
-                tried.update(r.link for g in chunk for r in g)
-                for r, reason, data, ci, tried in pool.map(self.fetch_posting, chunk, [deadline] * len(chunk)):
-                    stats.update(tried)
+                for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
+                                                                       [deadline] * len(chunk)):
+                    stats.update(attempts)
                     if reason != "ok":
                         continue
                     if listing_mismatch(r, ci):
@@ -1079,7 +1099,7 @@ class Proxy:
                 added += donor_id != 0
                 if donor_id > 0:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
-        self.rerank(path, auth, placed.values(), dist, stats)
+        self.rerank(path, auth, placed.values(), dist, stats, ranks)
         primary_check.join()
         backups.join()
         if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
@@ -1450,22 +1470,29 @@ class Proxy:
                 return True
         return False
 
-    def rerank(self, path, auth, placed, dist, stats):
+    def rerank(self, path, auth, placed, dist, stats, ranks=None):
         """Once every check is in: DupeScores in wholeness order (whole percent; then twin, closest size, grabs),
-        strictly falling, each at most its target_score. Donors were added in the order their checks finished,
-        so a wholer one can sit below a worse one until now."""
+        strictly falling, each at most its target_score, and never one that another posting of the key holds
+        (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
+        finished, so a wholer one can sit below a worse one until now."""
         live = sorted((p for p in placed if p.score > 1), key=lambda p: (
             -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes),
             -p.v[0].grabs))
+        held = (ranks.used - {p.score for p in live}) if ranks is not None else set()
         prev = 100
         for p in live:
             want = max(2, min(target_score(p.alive, p.twin), prev - 1))
+            while want in held and want > 2:
+                want -= 1
             prev = want
             if want == p.score:
                 continue
             if self.set_score(path, auth, p.id, want):
                 log.info("reranked donor nzbid=%d %s [%s]: score %d -> %d, alive=%s", p.id, p.v[0].title,
                          p.v[0].indexer, p.score, want, pct(p.alive))
+                if ranks is not None:
+                    ranks.release(p.score)
+                    ranks.used.add(want)
                 p.score = want
             else:
                 stats["rescore"] += 1
