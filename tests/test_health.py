@@ -789,3 +789,39 @@ def test_a_slot_is_given_back_even_when_quit_is_cancelled(monkeypatch):
     monkeypatch.setattr(dh, "_slots", lambda s: Slots())
     dh.fetch_body(["a"], "<x@y>", timeout=0.3)
     assert given == [1]
+
+
+def test_a_cancelled_quit_still_closes_the_socket(monkeypatch):
+    # Codex review (PR 1): a QUIT cancelled past its 200 ms left the TLS socket open while the slot went back
+    import asyncio
+    import donor_health as dh
+    dropped = []
+
+    class Conn:
+        def __init__(self, server):
+            self._writer, self._reader = object(), None
+
+        async def _connect_once(self):
+            pass
+
+        async def _send_command(self, cmd):
+            return 222, ""
+
+        async def _read_multiline(self):
+            return []
+
+    async def slow_quit(conn):
+        await asyncio.sleep(5)
+
+    class Slots:
+        def try_take(self):
+            return True
+
+        def give_back(self):
+            pass
+    monkeypatch.setattr(dh, "AsyncNntpConnection", Conn)
+    monkeypatch.setattr(dh, "_quit", slow_quit)
+    monkeypatch.setattr(dh, "_drop", lambda conn: dropped.append(conn))
+    monkeypatch.setattr(dh, "_slots", lambda s: Slots())
+    dh.fetch_body(["a"], "<x@y>", timeout=1.0)
+    assert len(dropped) == 1

@@ -1167,3 +1167,12 @@ def test_a_packed_movie_of_another_title_without_a_year_is_another_title():
     assert ndp.other_title(MOVIE, "Other.Movie.1080p.WEB.H264-GRP.mkv")
     assert not ndp.other_title(MOVIE, "Quiet.Harbour.1080p.WEB.H264-GRP.mkv")
     assert not ndp.other_title(MOVIE, "a8f3c9e1b7d24f60.mkv")
+
+
+def test_rerank_never_raises_an_unchecked_backup(make_proxy):
+    # Codex review (PR 1): an unreadable backup at base+20 was raised to base+89 by the combined rerank
+    p = _watcher(make_proxy)
+    low = ndp.Placed(3, 20, None, False, None, 140, True)
+    p.set_score = lambda *a, **kw: True
+    p.rerank("/jsonrpc", "", [low], lambda size: 0, __import__("collections").Counter())
+    assert low.score == 20

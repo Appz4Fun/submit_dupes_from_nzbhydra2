@@ -454,7 +454,9 @@ async def _fetch_one_body(server, deadline, message_id, sized):
             await asyncio.wait_for(_quit(conn), 0.2)
         except Exception:
             pass
-        finally:  # whatever happened to the QUIT (even the caller's cancellation, which goes on), the slot goes back
+        finally:  # whatever happened to the QUIT (even the caller's cancellation, which goes on): a still open
+            if getattr(conn, "_writer", None) is not None:  # socket is dropped, then the slot goes back
+                _drop(conn)
             slots.give_back()
 
 

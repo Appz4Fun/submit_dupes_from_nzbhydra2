@@ -1578,6 +1578,8 @@ class Proxy:
         prev = 100
         for p in live:
             want = max(2, min(target_score(p.alive, p.twin), prev - 1))
+            if p.unchecked:  # no new health evidence: never above where it already was
+                want = min(want, p.score)
             while want in held and want > 2:
                 want -= 1
             prev = want
