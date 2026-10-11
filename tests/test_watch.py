@@ -1383,3 +1383,14 @@ def test_a_title_and_year_run_together_is_no_hash():
     assert not ndp.hashlike("13ReasonsWhy2017.S01E01.1080p.WEB.H264-GRP")
     assert not ndp.hashlike("a8f3c9e1b7d24f60.S01E01.1080p")       # an episode named: not an obfuscated listing
     assert ndp.hashlike("a8f3c9e1b7d24f60.1080p")
+
+
+def test_no_lenient_pass_once_the_deadline_has_passed(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): with the shared deadline already gone the lenient pass still sent its Hydra searches
+    _pick(nzbget, tmp_path, release(TITLE, prefix="p"))
+    nzbget.config_entries = FakeNntp(_part(release(TITLE, prefix="p"), 0.3)).config(1)
+    p = _watcher(make_proxy, deadline=0.0)
+    p.watch_once()
+    p.wait_idle(30)
+    lenient_only = "q=show+s01e01&"                                  # the episode without its resolution
+    assert not [q for q in hydra.queries if lenient_only in q], hydra.queries

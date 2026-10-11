@@ -1048,7 +1048,8 @@ class Proxy:
         self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
-            if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
+            if self.ctx.unrescued and added < self.cfg.donor_cap and time.time() < t0 + self.cfg.deadline:
+                # will fail, nothing whole by its name, time left: look wider
                 log.info("search %s: pick will likely fail and no backup is whole: searching leniently", title)
                 self.ctx.unrescued = False
                 added += self._discover(key, title, info, category, path, auth, nzbid, t0, base, True,  # one deadline
