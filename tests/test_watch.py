@@ -706,6 +706,15 @@ def test_a_donor_with_the_picks_data_files_is_hinted_dupe_same_size(make_proxy, 
 def test_a_donor_whose_packed_file_matches_is_hinted_dupe_same_inner(make_proxy, nzbget, hydra, tmp_path):
     from tests.fakes import rar5_head
     pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert _pp(d).get("DupeSameInner") == "1"
 
 
 def test_the_lenient_pass_keeps_max_donors_for_the_whole_release(make_proxy, nzbget, hydra, tmp_path):
