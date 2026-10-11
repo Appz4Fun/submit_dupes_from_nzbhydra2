@@ -1158,6 +1158,12 @@ class Proxy:
             if was_fast:
                 if fp in placed:
                     self.rescore(path, auth, placed[fp], health, ranks, stats)
+                elif fp in would and h is not None and h.alive is not None:  # dry run: the full sample's word
+                    dead = h.alive < cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
+                    if dead:
+                        would.pop(fp)
+                    else:
+                        would[fp] = (would[fp][0], h.alive)
             elif added >= cap:
                 stats["over-cap"] += 1
             elif not self.dead(v, health, stats, "full sample"):

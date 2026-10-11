@@ -1213,3 +1213,4 @@ def test_a_dry_run_with_a_whole_donor_never_widens_the_search(make_proxy, nzbget
     p.watch_once()
     p.wait_idle(30)
     assert len(hydra.fetches) == 1, hydra.fetches
+
