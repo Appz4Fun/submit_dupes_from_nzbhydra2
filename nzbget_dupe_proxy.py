@@ -355,7 +355,7 @@ def inner_entry(data, name="", total=None, min_size=0):
             found = _rar5_file(data, min_size)
         elif data.startswith(b"Rar!\x1a\x07\x00"):
             found = _rar4_file(data, min_size)
-        elif is_media(name) and total:
+        elif is_media(name) and total and total >= min_size:
             found = (name, total)
         else:
             return None

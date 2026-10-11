@@ -374,3 +374,9 @@ def test_inner_entry_skips_a_small_video_ahead_of_the_main_one():
     head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("intro.mp4", b"i" * 64),))
     assert ndp.inner_entry(head, min_size=1000000)[:2] == ("mkv", 5000000000)
     assert ndp.inner_entry(rar5_head("intro.mp4", 64), min_size=1000000) is None
+
+
+def test_a_small_bare_video_is_no_identity_either():
+    # Codex review (PR 1): a bare intro.mp4 identified the release by its yEnc size
+    assert ndp.inner_entry(b"\x00" * 64, "intro.mp4", 64, min_size=1000000) is None
+    assert ndp.inner_entry(b"\x00" * 64, "Show.S01E01.mkv", 5000000000, min_size=1000000)[:2] == ("mkv", 5000000000)
