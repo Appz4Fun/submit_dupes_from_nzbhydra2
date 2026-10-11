@@ -1072,3 +1072,42 @@ def test_the_final_rerank_moves_a_backups_twins_with_it(make_proxy, nzbget, hydr
     scores = nzbget.final_scores()
     (d,) = nzbget.appends
     assert scores[501] == scores[502] < scores[d["id"]], scores
+
+
+def test_a_posting_whose_files_name_another_show_is_never_taken(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): "Other.Show.S01E01.part01.rar" names no group or resolution, so it slipped past the
+    # name checks and an equal-sized mkv inside let it in
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), release("Other.Show.S01E01", prefix="r")
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    assert not nzbget.appends
+
+
+def test_a_listing_that_names_another_show_is_never_fetched_by_size():
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": "Other Show S01E01", "size": info.total_bytes})()
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+
+
+def test_a_packed_file_in_a_folder_is_compared_by_its_own_name():
+    # Codex review (PR 1): "Show/Show.S01E01..." read as the title "show show"
+    assert not ndp.other_title(TITLE, "Show/Show.S01E01.1080p.WEB.H264-GRP.mkv")
+    assert not ndp.other_title(TITLE, "Show\\Show.S01E01.1080p.WEB.H264-GRP.mkv")
+
+
+def test_backups_keep_their_size_in_the_combined_ranking(make_proxy):
+    # Codex review (PR 1): a backup ranked with v=None counted as the pick's own size, so a 420 MB backup sorted
+    # ahead of a 147 MB donor beside a 140 MB pick
+    p = _watcher(make_proxy)
+    r = type("R", (), {"title": TITLE, "indexer": "i", "grabs": 0})()
+    near = ndp.Placed(1, 80, 1.0, False, (r, b"", type("I", (), {"total_bytes": 147})()))
+    far = ndp.Placed(2, 81, 1.0, False, None, size=420)
+    p.set_score = lambda *a, **kw: True
+    p.rerank("/jsonrpc", "", [near, far], lambda size: abs(size - 140), __import__("collections").Counter())
+    assert near.score > far.score

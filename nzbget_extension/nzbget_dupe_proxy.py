@@ -483,20 +483,26 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if consistent(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return not readable(r.title) and not conflicts(primary_title, r.title) and bool(primary_bytes and r.size) and \
+    return not readable(r.title) and not conflicts(primary_title, r.title) and \
+        not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def basename(name):
+    """A (packed) file's own name, without the folders it sits in."""
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def other_title(a_name, b_name):
     """b names another title: it carries an episode or year (so its title is a real one, not an obfuscated
     hash) and that title is not a's."""
-    a, b = release_attrs(a_name), release_attrs(b_name)
+    a, b = release_attrs(a_name), release_attrs(basename(b_name))
     return bool(b["title"] and (b["seasons"] or b["episodes"] or b["year"]) and b["title"] != a["title"])
 
 
 def conflicts(a_name, b_name):
     """Does b's name state something a's contradicts: another group, resolution, HDR/DV format, or episode?"""
-    a, b = release_attrs(a_name), release_attrs(b_name)
+    a, b = release_attrs(a_name), release_attrs(basename(b_name))
     if a["year"] and b["year"] and a["year"] != b["year"]:
         return True
     return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
@@ -722,7 +728,8 @@ class Placed:
     score: int
     alive: object  # share, or None if unknown
     twin: bool
-    v: tuple       # (Result, nzb bytes, NzbInfo)
+    v: tuple       # (Result, nzb bytes, NzbInfo); None for a submitter's backup
+    size: int = 0  # a backup's bytes (a donor's are v[2].total_bytes)
 
 
 def alive_of(health, v):
@@ -1085,7 +1092,8 @@ class Proxy:
                     known, sk = known_f.result(), sketch(ci.message_ids)
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
-                        if conflicts(title, ci.main_name) or readable(ci.main_name) and not consistent(
+                        if conflicts(title, ci.main_name) or other_title(title, ci.main_name) or \
+                                readable(ci.main_name) and not consistent(
                                 title, ci.main_name) or not lenient_ok(
                                 title, info, ci, self.inner(servers, info, deadline), self.inner(servers, ci, deadline)):
                             stats["other-release"] += 1  # what's inside is not the pick's file
@@ -1152,7 +1160,8 @@ class Proxy:
         self.ctx.placed += list(placed.values())  # both passes' donors are ranked together ...
         backups.join()                             # ... and with the submitter's own backups
         kept = checked_backups.get("ranked", {})
-        theirs = [Placed(bid, sc, al, False, None) for bid, (sc, al, dead) in kept.items()
+        sizes = checked_backups.get("sizes", {})
+        theirs = [Placed(bid, sc, al, False, None, sizes.get(bid, 0)) for bid, (sc, al, dead) in kept.items()
                   if not dead and sc > 1 and al is not None]
         self.rerank(path, auth, self.ctx.placed + theirs, dist, stats, ranks)
         for b in theirs:
@@ -1369,7 +1378,7 @@ class Proxy:
                                "seen": [_int(x.get("NZBID")) for x in items]}  # every backup this ranking covered
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
-            out.update(ranked=ranked, pick=pick_h,
+            out.update(ranked=ranked, pick=pick_h, sizes={b: i.total_bytes for b, (_, i) in groups.items()},
                        twins={s: [t for t, _, sib in twins if sib == s] for _, _, s in twins})
         elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
@@ -1544,7 +1553,8 @@ class Proxy:
         (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
         finished, so a wholer one can sit below a worse one until now."""
         live = sorted((p for p in placed if p.score > 1), key=lambda p: (  # a backup's v is None
-            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes) if p.v else 0,
+            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
+            dist(p.v[2].total_bytes if p.v else p.size) if p.v or p.size else 0,
             -p.v[0].grabs if p.v else 0))
         olds = {p.score for p in live}
         held = (ranks.used - olds) if ranks is not None else set()
