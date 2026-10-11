@@ -1130,7 +1130,9 @@ class Proxy:
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
                 spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
-                paid = [g for g in order if not self.free(fetched, g)]
+                now = time.time()  # postings listed only on indexers cooling down can't be fetched: no slot
+                paid = [g for g in order if not self.free(fetched, g)
+                        and not all(self.refused.get(r.indexer, 0) > now for r in g)]
                 left = max(0, 3 * cfg.max_donors - spent)
                 order = [g for g in order if self.free(fetched, g)] + paid[:left] + \
                     [self.cached_only(fetched, g) for g in paid[left:] if self.cached(fetched, g)]  # no budget: cache only

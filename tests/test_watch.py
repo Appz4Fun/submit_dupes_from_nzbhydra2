@@ -1426,3 +1426,20 @@ def test_a_cached_nzb_is_still_looked_at_once_the_budget_is_spent(make_proxy):
     L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
     fetched = {"a": (L("a"), "ok", b"", type("I", (), {"total_bytes": 5000})(), None)}
     assert [r.link for r in p.cached_only(fetched, [L("b"), L("a")])] == ["a"]
+
+
+def test_cooldown_only_postings_take_no_fetch_slot(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): a posting listed only on cooling-down indexers took the one slot left, and the
+    # healthy posting after it was never fetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED + " cold", release(TITLE, prefix="c", obfuscate=True), indexer="cold")
+    hydra.add(RENAMED, other, indexer="warm")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.refused["cold"] = __import__("time").time() + 3600
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
