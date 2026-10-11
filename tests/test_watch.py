@@ -895,3 +895,48 @@ def test_a_cached_posting_is_found_by_any_of_its_listings(make_proxy):
     p.fetch_posting = lambda listings, deadline: (_ for _ in ()).throw(AssertionError("grabbed again"))
     assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
     assert p.cached(fetched, [L("b"), L("a")])
+
+
+def test_a_cached_fetch_failure_tries_the_postings_other_listings(make_proxy):
+    # Codex review (PR 1): listing A failed in the first pass; B, another listing of that posting, joined in the
+    # lenient pass but the cached failure was returned without trying it
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link})()  # noqa: E731
+    fetched = {"a": ("ra", "fetch", None, None, None)}
+    tried = []
+    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or ("rb", "ok", b"", 1, None)
+    assert p.fetch_once(fetched, [L("b"), L("a")], 0)[1] == "ok"
+    assert tried == [["b"]]
+
+
+def test_a_partly_failed_head_read_is_not_cached(make_proxy, monkeypatch):
+    # Codex review (PR 1): one unreadable head plus one failed read was cached as "no inner file" for good
+    from tests.fakes import rar5_head
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    first = info.heads[0][0]
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else None)
+    assert p.inner(["srv"], info) is None
+    monkeypatch.setattr(ndp.donor_health, "fetch_body",
+                        lambda servers, sid, **kw: (b"\x00" * 64, None) if sid == first else
+                        (rar5_head(TITLE + ".mkv", 13999000), None))
+    assert p.inner(["srv"], info) == ("mkv", 13999000)
+
+
+def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): an 80% first-pass donor kept its score above a 100% lenient donor, whose rerank
+    # only stepped around it
+    from tests.fakes import rar5_head
+    pick, part, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(TITLE, part)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(part, 0.8) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores, ids = nzbget.final_scores(), {base64.b64decode(a["params"][1]): a["id"] for a in nzbget.appends}
+    assert scores[ids[other]] > scores[ids[part]], scores

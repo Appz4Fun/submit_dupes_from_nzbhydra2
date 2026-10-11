@@ -945,8 +945,11 @@ class Proxy:
         """fetch_posting(), but a posting this release's earlier pass fetched (in `fetched`, under every one of
         its listings' links) is looked at again, not grabbed again."""
         hit = self.cached(fetched, listings)
-        if hit is not None:
+        fresh = [r for r in listings if r.link not in fetched]
+        if hit is not None and (hit[1] == "ok" or not fresh):
             return hit[:4] + (Counter(),)
+        if hit is not None:  # the earlier listings failed: try the ones not asked yet
+            listings = fresh
         got = self.fetch_posting(listings, deadline)
         fetched.update((r.link, got) for r in listings)
         return got
@@ -971,7 +974,7 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
-        self.ctx.fetched, self.ctx.backups = {}, None  # the first pass's grabs and backup ranking, for the second
+        self.ctx.fetched, self.ctx.backups, self.ctx.placed = {}, None, []  # the first pass's grabs and backup ranking, for the second
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -1117,7 +1120,10 @@ class Proxy:
                 added += donor_id != 0
                 if donor_id > 0:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
-        self.rerank(path, auth, placed.values(), dist, stats, ranks)
+        if getattr(self.ctx, "placed", None) is None:
+            self.ctx.placed = []
+        self.ctx.placed += list(placed.values())  # both passes' donors are ranked together
+        self.rerank(path, auth, self.ctx.placed, dist, stats, ranks)
         primary_check.join()
         backups.join()
         if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
@@ -1360,17 +1366,17 @@ class Proxy:
         with self.block_lock:
             if info.heads in self.inners:
                 return self.inners[info.heads]
-        found, read = None, False
+        found, every_read = None, True
         for sid, name in info.heads:
             left = 30.0 if deadline is None else min(30.0, deadline - time.time())
             if left <= 0:
                 return None  # out of time: unknown, and not cached (a later search may read it)
             got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
-            read = read or bool(got)
+            every_read = every_read and bool(got)
             found = inner_file(got[0], name, got[1]) if got else None
             if found:
                 break
-        if found or read:  # a failed read (server down) is not "no inner file": a later search tries again
+        if found or every_read:  # a failed read (server down) is not "no inner file": a later search tries again
             with self.block_lock:
                 self.inners[info.heads] = found
         return found
