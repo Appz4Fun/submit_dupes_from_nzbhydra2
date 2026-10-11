@@ -477,8 +477,14 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if consistent(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return not readable(r.title) and bool(primary_bytes and r.size) and \
+    return not readable(r.title) and not conflicts(primary_title, r.title) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def conflicts(a_name, b_name):
+    """Does b's name state something a's contradicts: another group, resolution, HDR/DV format, or episode?"""
+    a, b = release_attrs(a_name), release_attrs(b_name)
+    return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
 
 
 def consistent(a_name, b_name):
@@ -946,10 +952,15 @@ class Proxy:
         its listings' links) is looked at again, not grabbed again."""
         hit = self.cached(fetched, listings)
         fresh = [r for r in listings if r.link not in fetched]
-        if hit is not None and (hit[1] == "ok" or not fresh):
+        settled = hit is not None and hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
+        if hit is not None and (settled or not fresh):
             return hit[:4] + (Counter(),)
-        if hit is not None:  # the earlier listings failed: try the ones not asked yet
-            listings = fresh
+        if hit is not None:  # the earlier listings failed or served another NZB: try the ones not asked yet
+            got = self.fetch_posting(fresh, deadline)
+            if got[1] != "ok" and hit[1] == "ok":
+                got = hit[:4] + (got[4],)  # nothing better: keep the earlier (mismatched) one
+            fetched.update((r.link, got) for r in fresh)
+            return got
         got = self.fetch_posting(listings, deadline)
         fetched.update((r.link, got) for r in listings)
         return got

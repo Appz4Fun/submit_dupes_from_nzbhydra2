@@ -940,3 +940,28 @@ def test_donors_of_both_passes_are_ranked_together(make_proxy, nzbget, hydra, tm
     p.wait_idle(30)
     scores, ids = nzbget.final_scores(), {base64.b64decode(a["params"][1]): a["id"] for a in nzbget.appends}
     assert scores[ids[other]] > scores[ids[part]], scores
+
+
+def test_a_listing_that_names_another_hdr_format_alone_is_never_fetched_by_size(make_proxy):
+    # Codex review (PR 1): "Show S01E01 DV" names no group or resolution, so it read as unreadable and the size
+    # fallback let it in, though it says another HDR format
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": "Show S01E01 DV", "size": info.total_bytes})()
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+    r.title = "a8f3c9e1b7d24f60"
+    assert ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+
+
+def test_a_cached_nzb_that_did_not_match_its_listing_lets_fresh_listings_be_tried(make_proxy):
+    # Codex review (PR 1): the first pass kept a size-mismatched NZB as its "ok" fallback; the lenient pass then
+    # returned it for a group with a new listing of the posting, which was never tried
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
+    wrong = type("I", (), {"total_bytes": 5000})()
+    fetched = {"a": (L("a"), "ok", b"", wrong, None)}
+    tried = []
+    right = type("I", (), {"total_bytes": 1000})()
+    p.fetch_posting = lambda listings, deadline: tried.append([r.link for r in listings]) or (listings[0], "ok", b"",
+                                                                                            right, None)
+    assert p.fetch_once(fetched, [L("b"), L("a")], 0)[3] is right
+    assert tried == [["b"]]
