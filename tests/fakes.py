@@ -335,7 +335,7 @@ def _vint(n):
             return bytes(out)
 
 
-def rar5_head(name, size, dirs=()):
+def rar5_head(name, size, dirs=(), sidecars=()):
     """The start of a RAR5 volume: signature, main header, a directory header for each of `dirs`, and the
     file header of `name` (`size` unpacked)."""
     import binascii
@@ -352,6 +352,10 @@ def rar5_head(name, size, dirs=()):
         dn = d.encode()
         heads += block(_vint(2) + _vint(0) + _vint(0x1) + _vint(0) + _vint(0x10) + _vint(0) + _vint(0) +
                        _vint(len(dn)) + dn)
+    for sname, sdata in sidecars:                              # small stored files ahead of the media file
+        sn = sname.encode()
+        heads += block(_vint(2) + _vint(0x2) + _vint(len(sdata)) + _vint(0) + _vint(len(sdata)) + _vint(0x20) +
+                       _vint(0) + _vint(0) + _vint(len(sn)) + sn) + sdata
     return b"Rar!\x1a\x07\x01\x00" + block(main) + heads + block(filehdr) + b"\x00" * 64
 
 

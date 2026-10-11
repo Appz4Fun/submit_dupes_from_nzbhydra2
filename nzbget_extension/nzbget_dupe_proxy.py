@@ -287,8 +287,14 @@ def _rar5_file(data):
             _, j = _vint(data, j)             # compression
             _, j = _vint(data, j)             # host OS
             n, j = _vint(data, j)
-            name = data[j:j + n].decode("utf-8", "replace")
-            return None if fflags & 8 or len(name) < n else (name, unpacked)  # 8: unpacked size unknown
+            raw = data[j:j + n]
+            if len(raw) < n or fflags & 8:    # cut off, or (8) unpacked size unknown
+                return None
+            name = raw.decode("utf-8", "replace")
+            if MEDIA_RE.search(name):
+                return name, unpacked
+            i = end + data_size               # a sidecar (nfo, sample notes): the media file comes later
+            continue
         if kind not in (1, 3) or size == 0:  # not main/service (an encryption header hides the rest)
             return None
         i = end + data_size
@@ -307,8 +313,16 @@ def _rar4_file(data):
             if flags & 0x100:
                 unpacked |= int.from_bytes(data[j + 4:j + 8], "little") << 32
                 j += 8
-            name = data[j:j + n].decode("utf-8", "replace")
-            return (name, unpacked) if len(name) == n and n else None
+            raw = data[j:j + n]
+            if len(raw) < n or not n:
+                return None
+            name = raw.decode("utf-8", "replace")
+            if MEDIA_RE.search(name):
+                return name, unpacked
+            packed = int.from_bytes(data[i + 7:i + 11], "little") | (
+                int.from_bytes(data[i + 32:i + 36], "little") << 32 if flags & 0x100 else 0)
+            i += size + packed                # a sidecar: the media file comes later
+            continue
         if size < 7:
             return None
         i += size + (int.from_bytes(data[i + 7:i + 11], "little") if flags & 0x8000 else 0)
@@ -317,7 +331,8 @@ def _rar4_file(data):
 
 def inner_file(data, name="", total=None):
     """(extension, bytes) of the file a posting delivers, read from the start of one of its files: the packed
-    file a RAR4/RAR5 volume holds (every volume repeats its header), or a bare media file's own size (`total`,
+    media file a RAR4/RAR5 volume holds (every volume repeats its header; sidecars ahead of it are skipped,
+    an archive with no media file in reach is unknown), or a bare media file's own size (`total`,
     from the article's =ybegin line). None when it can't be told (7z, encrypted headers, anything else)."""
     try:
         if data.startswith(b"Rar!\x1a\x07\x01\x00"):
@@ -924,7 +939,7 @@ class Proxy:
         return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
-        added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
+        added, self.ctx.unrescued, ranks, self.ctx.tried = 0, False, Ranks(), set()  # one Ranks: both passes draw distinct scores
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -970,7 +985,10 @@ class Proxy:
                     stats["deadline"] += 1
                 except Exception as e:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
-            cands = sorted((r for r in results.values() if r.link and candidate_ok(
+            if getattr(self.ctx, "tried", None) is None:
+                self.ctx.tried = set()
+            tried = self.ctx.tried  # links fetched by this release's earlier pass: the lenient pass skips them
+            cands = sorted((r for r in results.values() if r.link and (not lenient or r.link not in tried) and candidate_ok(
                 title, whole_bytes(info) if lenient else info.total_bytes, r, cfg.size_tolerance, lenient)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             rank = {id(r): i for i, r in enumerate(cands)}
             # postings (each listed by one or more indexers; most grabbed listing first), best listing first,
@@ -988,6 +1006,7 @@ class Proxy:
                     stats["deadline"] += len(order) - i
                     break
                 chunk = order[i:i + 4]
+                tried.update(r.link for g in chunk for r in g)
                 for r, reason, data, ci, tried in pool.map(self.fetch_posting, chunk, [deadline] * len(chunk)):
                     stats.update(tried)
                     if reason != "ok":

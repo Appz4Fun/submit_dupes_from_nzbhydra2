@@ -757,3 +757,21 @@ def test_reading_a_packed_file_stops_at_the_discovery_deadline(make_proxy, monke
     assert p.inner(["srv"], info, _time.time() - 1) is None and waits == []
     p.inner(["srv"], ndp.parse_nzb(release(TITLE, prefix="q")), _time.time() + 5)
     assert waits and max(waits) <= 5
+
+
+def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_try(make_proxy, nzbget, hydra,
+                                                                                     tmp_path):
+    # Codex review (PR 1): with MAX_DONORS=1 three dead postings by the pick's name took all three fetch slots
+    # again in the lenient pass, so the whole renamed posting was never fetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]

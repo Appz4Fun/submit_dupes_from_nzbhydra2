@@ -318,3 +318,22 @@ def test_whole_bytes_estimates_a_truncated_nzbs_full_size():
     i = parse_nzb(make_nzb([("f.part1.rar", [100] * 4)]))
     assert ndp.whole_bytes(i) == 400
     assert ndp.whole_bytes(dataclasses.replace(i, listed=0.4)) == 1000
+
+
+def test_inner_file_looks_past_sidecar_files_to_the_media_file():
+    # Codex review (PR 1): a readme ahead of the mkv made ('txt', 64) the release's identity
+    from tests.fakes import rar5_head
+    head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("readme.txt", b"x" * 64),))
+    assert ndp.inner_file(head) == ("mkv", 5000000000)
+
+
+def test_inner_file_of_an_archive_holding_no_media_file_up_front_is_unknown():
+    from tests.fakes import rar5_head
+    assert ndp.inner_file(rar5_head("notes.txt", 64)) is None
+
+
+def test_inner_file_reads_non_latin_names():
+    # Codex review (PR 1): the name length is in bytes, not characters
+    from tests.fakes import rar4_head, rar5_head
+    assert ndp.inner_file(rar5_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
+    assert ndp.inner_file(rar4_head("Amélie.2001.mkv", 7000000000)) == ("mkv", 7000000000)
