@@ -1477,3 +1477,19 @@ def test_every_downloaded_listing_of_a_posting_counts_against_the_budget(make_pr
     got = p.fetch_posting([L("a", 1000), L("b", 1000)], 0)
     assert got[4]["downloaded"] == 2
     assert ndp.downloads({"a": got, "b": got}) == 2
+
+
+def test_a_digest_listing_is_checked_for_conflicts_by_its_tags_only():
+    # Codex review (PR 3): conflicts() saw the whole name, so 2024 inside the digest clashed with a 2023 movie
+    info = ndp.parse_nzb(release("Quiet.Harbour.2023.1080p.WEB.H264-GRP", prefix="p"))
+    r = type("R", (), {"title": "deadbeef2024abcd.1080p", "size": info.total_bytes})()
+    assert ndp.candidate_ok("Quiet.Harbour.2023.1080p.WEB.H264-GRP", info.total_bytes, r, 0, True)
+
+
+def test_the_budget_trims_a_postings_fresh_listings(make_proxy):
+    # Codex review (PR 3): with one download left a posting with two fresh listings could fetch both
+    p = _watcher(make_proxy)
+    R = lambda link: type("R", (), {"link": link, "size": 1000, "indexer": "i"})()  # noqa: E731
+    assert [r.link for r in p.within_budget({}, [R("a"), R("b")], 1)] == ["a"]
+    assert [r.link for r in p.within_budget({"c": ("x", "fetch", None, None, None)}, [R("c"), R("a"), R("b")], 1)] \
+        == ["c", "a"]

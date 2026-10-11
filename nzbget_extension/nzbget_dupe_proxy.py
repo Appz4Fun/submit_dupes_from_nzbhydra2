@@ -484,7 +484,8 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
     if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
     hashed = hashlike(r.title)  # a digest named as the title: tags may follow, but it names no other title
-    return (not readable(r.title) or hashed) and not conflicts(primary_title, r.title) and \
+    named = digest_tags(r.title) if hashed else r.title  # a digest's own digits are no year
+    return (not readable(r.title) or hashed) and not conflicts(primary_title, named) and \
         (hashed or not other_title(primary_title, r.title)) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
@@ -499,6 +500,12 @@ def grabbed(result):
     """Did a fetch_posting() result cost a download: it ended on one, or one of its listings was downloaded
     before a later one was skipped on an indexer's cooldown?"""
     return result[1] != "refused" or any(n and k not in ("refused", "relisted") for k, n in (result[4] or {}).items())
+
+
+def digest_tags(name):
+    """What follows a listing's leading digest (its tags), or "" when nothing does."""
+    parts = re.split(r"[.\s_\-()\[\]]+", basename(name).strip(), maxsplit=1)
+    return parts[1] if len(parts) > 1 else ""
 
 
 def hashlike(name):
@@ -1026,6 +1033,18 @@ class Proxy:
         fresh = any(r.link not in fetched for r in listings)
         return not fresh or hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
 
+    def within_budget(self, fetched, listings, left):
+        """A posting's listings cut to what `left` downloads allow: its cached ones, then at most `left` fresh
+        ones on indexers not cooling down."""
+        now, out, fresh = time.time(), [], 0
+        for r in listings:
+            if r.link in fetched:
+                out.append(r)
+            elif fresh < left and self.refused.get(r.indexer, 0) <= now:
+                out.append(r)
+                fresh += 1
+        return out
+
     @staticmethod
     def cached_only(fetched, listings):
         """The listings of a posting that were already fetched: looking at them again costs no grab."""
@@ -1122,6 +1141,8 @@ class Proxy:
         dist = lambda size: abs(size - size0)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
+            if lenient and time.time() >= deadline:  # the first pass and setup used it up: no searches after it
+                return 0
             for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info, lenient)]:
                 try:
                     for r in f.result(timeout=max(0.0, deadline - time.time())):
@@ -1154,8 +1175,16 @@ class Proxy:
                     elif self.cached(fetched, g):
                         cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
                 left = max(0, 3 * cfg.max_donors - spent)
-                order = free + cache_only + [self.cached_only(fetched, g) for g in paid[left:]  # cache: no fetch,
-                                             if self.cached(fetched, g)] + paid[:left]  # so before the paid ones
+                spend = []  # paid postings, each cut to the downloads still left in the budget
+                for g in paid:
+                    cut = self.within_budget(fetched, g, left) if left > 0 else []
+                    fresh = sum(r.link not in fetched for r in cut)
+                    if fresh:
+                        spend.append(cut)
+                        left -= fresh
+                    elif self.cached(fetched, g):
+                        cache_only.append(self.cached_only(fetched, g))
+                order = free + cache_only + spend  # the cache costs no fetch: before the paid ones
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
