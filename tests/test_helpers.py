@@ -305,3 +305,16 @@ def test_inner_file_of_a_bare_media_file_is_its_yenc_size():
 def test_inner_file_of_anything_else_is_unknown():
     assert ndp.inner_file(b"\x00" * 64, "a8f3c9e1.bin", 1000) is None
     assert ndp.inner_file(b"Rar!\x1a\x07\x01\x00garbage") is None
+
+
+def test_inner_file_skips_directory_headers_before_the_media_file():
+    # Codex review (PR 1): a RAR5 volume may start with directory entries (file flag 0x1, size 0)
+    from tests.fakes import rar5_head
+    assert ndp.inner_file(rar5_head("Show/Show.S01E01.mkv", 5000000000, dirs=("Show",))) == ("mkv", 5000000000)
+
+
+def test_whole_bytes_estimates_a_truncated_nzbs_full_size():
+    import dataclasses
+    i = parse_nzb(make_nzb([("f.part1.rar", [100] * 4)]))
+    assert ndp.whole_bytes(i) == 400
+    assert ndp.whole_bytes(dataclasses.replace(i, listed=0.4)) == 1000

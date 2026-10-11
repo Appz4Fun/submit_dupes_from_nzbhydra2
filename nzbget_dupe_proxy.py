@@ -278,6 +278,9 @@ def _rar5_file(data):
         data_size, j = _vint(data, j) if flags & 2 else (0, j)
         if kind == 2:                         # file header
             fflags, j = _vint(data, j)
+            if fflags & 1:                    # a directory entry: the media file comes later
+                i = end + data_size
+                continue
             unpacked, j = _vint(data, j)
             _, j = _vint(data, j)             # attributes
             j += 4 * bool(fflags & 2) + 4 * bool(fflags & 4)  # mtime, data CRC32
@@ -467,12 +470,16 @@ def consistent(a_name, b_name):
 def lenient_ok(title, info, ci, mine=None, theirs=None):
     """A posting found only by the lenient search is the release asked for: the file inside it (`theirs`,
     inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
-    its files are named as it, or (obfuscated) they are as many and as big (within LENIENT_BYTES) as the pick's."""
+    its files must be named as the pick. Obfuscated files that can't be looked inside are no proof: another
+    encode of the episode can have as many volumes of about the same size."""
     if mine and theirs:
         return mine == theirs
-    if readable(ci.main_name):
-        return same_release(title, ci.main_name)
-    return ci.files == info.files and abs(ci.total_bytes - info.total_bytes) <= LENIENT_BYTES * info.total_bytes
+    return readable(ci.main_name) and same_release(title, ci.main_name)
+
+
+def whole_bytes(info):
+    """An NZB's bytes as if it listed all its parts: a truncated NZB (listed < 1) lists only some of them."""
+    return round(info.total_bytes / info.listed) if 0 < info.listed < 1 else info.total_bytes
 
 
 def group_listings(results):
@@ -625,7 +632,6 @@ def _int(v):
 
 
 LENIENT_LISTED = 0.01  # lenient search: listings this close to the pick's size are fetched, whatever their name
-LENIENT_BYTES = 0.005  # ... and an obfuscated NZB this close (with as many files) counts as the release
 RESEARCH_EMPTY = 900  # seconds after which a pick whose search added no donors is searched again
 SEARCH_STALE = 1800  # seconds after which an unfinished search (its worker was killed) may be started again
 RANK_REUSE = 120  # seconds a ranking of a key's backups is reused (every backup's nzbget event starts a worker)
@@ -835,9 +841,16 @@ class Proxy:
                               a.get("hydraIndexerName", "")))
         return out
 
-    def queries(self, title, info):
+    def queries(self, title, info, lenient=False):
         norm, short, group = normalize_title(title), short_query(title), release_attrs(title)["group"]
         qs = [{"t": "search", "q": norm.replace(".", " ")}]
+        if lenient and not short:  # nothing to cut at: the bare title finds postings named otherwise
+            try:
+                bare = " ".join(re.findall(r"[a-z0-9]+", str(parse_title(clean_name(title)).get("title", "")).lower()))
+            except Exception:
+                bare = ""
+            if bare and bare != qs[0]["q"]:
+                qs.append({"t": "search", "q": bare})
         if short and short != qs[0]["q"]:
             qs.append({"t": "search", "q": short})
         if short and group:  # other indexers often rename a release; the group narrows to its postings
@@ -911,20 +924,23 @@ class Proxy:
         return (other or last) + (stats,)
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
-        added, self.ctx.unrescued = 0, False
+        added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
         try:
-            added = self._discover(key, title, info, category, path, auth, nzbid, t0, base)
-            if self.ctx.unrescued:  # the pick will fail and nothing whole was found by its name: look wider
+            added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
+            if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
                 log.info("search %s: pick will likely fail and no backup is whole: searching leniently", title)
                 self.ctx.unrescued = False
-                added += self._discover(key, title, info, category, path, auth, nzbid, time.time(), base, True)
+                added += self._discover(key, title, info, category, path, auth, nzbid, time.time(), base, True,
+                                        ranks, added)
         finally:
             self.state.searched(key, abs(nzbid), added)  # none added: searched again after RESEARCH_EMPTY
             self.state.end_search(key, abs(nzbid))  # a killed worker never gets here: the search stays unfinished
 
-    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, lenient=False):
+    def _discover(self, key, title, info, category, path, auth, nzbid, t0, base=0, lenient=False, ranks=None,
+                  prior=0):
         """`base` lifts every DupeScore sent (donors base+2..base+90, dead base+1): 0 under the proxy's own
-        primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups)."""
+        primary at 100, pick - 1000 under a pick that a submitter scored higher (and its own backups). The
+        lenient pass shares the first pass's `ranks` and counts its `prior` donors against MAX_DONORS."""
         self.ctx.base = base
         cfg, stats, deadline, results = self.cfg, Counter(), t0 + self.cfg.deadline, {}
         nzbget_config = self.rpc_call(path, auth, "config", []) or []
@@ -934,7 +950,8 @@ class Proxy:
         primary_check = threading.Thread(target=self.check_primary, daemon=True,
                                          args=(servers, path, auth, nzbid, title, info, base))
         primary_check.start()
-        ranks = Ranks()
+        ranks = ranks if ranks is not None else Ranks()
+        cap = cfg.donor_cap - prior
         # the submitter's own backups (already in nzbget's history) get the same health ranking as donors
         checked_backups = {}  # rank_backups fills in "ranked" and "pick": the swap waits for the donors too
         backups = threading.Thread(target=self.rank_backups, daemon=True,
@@ -945,7 +962,7 @@ class Proxy:
         dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
-            for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info)]:
+            for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info, lenient)]:
                 try:
                     for r in f.result(timeout=max(0.0, deadline - time.time())):
                         results.setdefault(r.link, r)
@@ -954,7 +971,7 @@ class Proxy:
                 except Exception as e:
                     log.warning("hydra search failed for %s: %s", title, mask(e))
             cands = sorted((r for r in results.values() if r.link and candidate_ok(
-                title, info.total_bytes, r, cfg.size_tolerance, lenient)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
+                title, whole_bytes(info) if lenient else info.total_bytes, r, cfg.size_tolerance, lenient)), key=lambda r: (dist(r.size), -r.grabs, -r.date))
             rank = {id(r): i for i, r in enumerate(cands)}
             # postings (each listed by one or more indexers; most grabbed listing first), best listing first,
             # then one posting of each distinct size before the rest
@@ -983,7 +1000,7 @@ class Proxy:
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
                         if readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
-                                title, info, ci, self.inner(servers, info), self.inner(servers, ci)):
+                                title, info, ci, self.inner(servers, info, deadline), self.inner(servers, ci, deadline)):
                             stats["other-release"] += 1  # what's inside is not the pick's file
                             continue
                     elif named_other:
@@ -1006,7 +1023,7 @@ class Proxy:
                             listed={ci.fingerprint: ci.listed for _, _, ci in verified})
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
-        n_fast = int(min(cfg.fast_donors, cfg.donor_cap))
+        n_fast = int(max(0, min(cfg.fast_donors, cap)))
         added, placed = 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
         for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v), twin(v[2]))
@@ -1035,7 +1052,7 @@ class Proxy:
             if was_fast:
                 if fp in placed:
                     self.rescore(path, auth, placed[fp], health, ranks, stats)
-            elif added >= cfg.donor_cap:
+            elif added >= cap:
                 stats["over-cap"] += 1
             elif not self.dead(v, health, stats, "full sample"):
                 score = ranks.take(alive_of(health, v), twin(v[2]))
@@ -1278,8 +1295,9 @@ class Proxy:
             if x.get("Status") in ("DELETED/DUPE", "DELETED/COPY"):
                 self.rank_late_backup(path, auth, x)
 
-    def inner(self, servers, info):
-        """inner_file() of an NZB, from the first article of its biggest files (cached), or None."""
+    def inner(self, servers, info, deadline=None):
+        """inner_file() of an NZB, from the first article of its biggest files (cached), or None; each read
+        waits at most what is left before `deadline`."""
         if not servers or not info.heads:
             return None
         with self.block_lock:
@@ -1287,7 +1305,10 @@ class Proxy:
                 return self.inners[info.heads]
         found = None
         for sid, name in info.heads:
-            got = donor_health.fetch_body(servers, sid, sized=True)
+            left = 30.0 if deadline is None else min(30.0, deadline - time.time())
+            if left <= 0:
+                return None  # out of time: unknown, and not cached (a later search may read it)
+            got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
             found = inner_file(got[0], name, got[1]) if got else None
             if found:
                 break

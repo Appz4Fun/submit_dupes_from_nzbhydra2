@@ -575,10 +575,10 @@ def test_a_pick_whose_search_found_no_donors_is_searched_again_later(make_proxy,
 RENAMED = "Show S01E01 1080p WEB H264"  # an indexer's name for it: no group, so not "the same release"
 
 
-def test_a_failing_pick_with_no_whole_donor_is_swapped_for_an_obfuscated_posting_of_it(make_proxy, nzbget, hydra,
-                                                                                         tmp_path):
-    # live (How to Make a Killing, nzbid 8188): the pick sampled 50% and no posting by its name was fetched;
-    # postings of the same files that an indexer lists under another name were never looked at
+def test_a_failing_pick_never_takes_an_obfuscated_posting_it_cannot_look_inside(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): as many files of about the same size is no proof: another encode of the episode can
+    # look the same from outside. Without the packed file read from both, the pick fails rather than turn
+    # into something else
     pick, other = release(TITLE, prefix="p"), release(TITLE, prefix="r", obfuscate=True)
     hydra.add(RENAMED, other)
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other)).config(1)
@@ -586,9 +586,7 @@ def test_a_failing_pick_with_no_whole_donor_is_swapped_for_an_obfuscated_posting
     p = _watcher(make_proxy)
     p.watch_once()
     p.wait_idle(30)
-    (d,) = nzbget.appends
-    assert base64.b64decode(d["params"][1]) == other
-    assert ("HistoryRedownload", "", [d["id"]]) in nzbget.edits
+    assert not nzbget.appends
 
 
 def test_a_whole_pick_never_takes_an_obfuscated_posting(make_proxy, nzbget, hydra, tmp_path):
@@ -681,3 +679,81 @@ def test_a_listing_naming_another_group_resolution_or_hdr_is_never_fetched(make_
     p.watch_once()
     p.wait_idle(30)
     assert not hydra.fetches
+
+
+def test_the_lenient_pass_keeps_max_donors_for_the_whole_release(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass counted from 0 again, so MAX_DONORS=1 could add two donors
+    from tests.fakes import rar5_head
+    pick, half, other = release(TITLE, prefix="p"), release(TITLE, prefix="h"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(TITLE, half)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(half, 0.6) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(nzbget.appends) == 1
+
+
+def test_a_lenient_donor_never_ties_a_backup_ranked_in_the_first_pass(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass drew scores from a fresh Ranks, so it could hand out a score a
+    # backup ranked in the first pass already holds: a tie has no failover order
+    from tests.fakes import rar5_head
+    pick, back, other = release(TITLE, prefix="p"), release(TITLE, prefix="b"), _with_pars(TITLE, "r", 10000000)
+    hydra.add(RENAMED, other)
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + _part(back, 0.9) + article_ids(other),
+                                     payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    _backup(nzbget, tmp_path, back, 502, PICK - 2, TITLE + ".b")
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    scores = nzbget.final_scores()
+    ranked = [v for k, v in scores.items() if k != 500]
+    assert len(ranked) >= 2 and len(set(ranked)) == len(ranked), scores
+
+
+MOVIE = "Quiet.Harbour.1080p.WEB.H264-GRP"   # no year or episode: short_query() has nothing to cut at
+
+
+def test_the_lenient_pass_also_searches_by_title_alone(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): with no episode/year marker the lenient pass sent only the full-name query again,
+    # so a posting listed under another name could never come back
+    from tests.fakes import rar5_head
+    pick, other = release(MOVIE, prefix="p"), _with_pars(MOVIE, "r", 10000000)
+    hydra.add("Quiet Harbour 1080p WEB", other)
+    payloads = {"p-0-0@x": rar5_head(MOVIE + ".mkv", 13999000), "r-0-0@x": rar5_head("x.mkv", 13999000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick, name=MOVIE)
+    p = _watcher(make_proxy)
+    p.watch_once()
+    p.wait_idle(30)
+    (d,) = nzbget.appends
+    assert base64.b64decode(d["params"][1]) == other
+
+
+def test_a_truncated_pick_is_compared_by_its_whole_size():
+    # Codex review (PR 1): a pick whose NZB lists 40% of its parts was compared by its listed bytes, so a whole
+    # obfuscated repost (2.5 times as big) fell outside the 1% gate before its rar could be read
+    import dataclasses
+    info = dataclasses.replace(ndp.parse_nzb(release(TITLE, prefix="p")), listed=0.4)
+    whole = type("R", (), {"title": "a8f3c9e1b7d24f60", "size": round(info.total_bytes / 0.4)})()
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, whole, 0, True)
+    assert ndp.candidate_ok(TITLE, ndp.whole_bytes(info), whole, 0, True)
+
+
+def test_reading_a_packed_file_stops_at_the_discovery_deadline(make_proxy, monkeypatch):
+    # Codex review (PR 1): each head read waited 30 s per server whatever the deadline, so a stalled server
+    # kept a failing pick's rescue running for minutes past DEADLINE
+    import time as _time
+    waits = []
+    monkeypatch.setattr(ndp.donor_health, "fetch_body", lambda servers, sid, timeout=30.0, sized=False:
+                        waits.append(timeout))
+    p = _watcher(make_proxy)
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    assert p.inner(["srv"], info, _time.time() - 1) is None and waits == []
+    p.inner(["srv"], ndp.parse_nzb(release(TITLE, prefix="q")), _time.time() + 5)
+    assert waits and max(waits) <= 5
