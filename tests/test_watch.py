@@ -1493,3 +1493,26 @@ def test_the_budget_trims_a_postings_fresh_listings(make_proxy):
     assert [r.link for r in p.within_budget({}, [R("a"), R("b")], 1)] == ["a"]
     assert [r.link for r in p.within_budget({"c": ("x", "fetch", None, None, None)}, [R("c"), R("a"), R("b")], 1)] \
         == ["c", "a"]
+
+
+def test_a_digest_followed_by_standard_tags_is_still_obfuscated():
+    # Codex review (PR 3): PTT read "remux" as the suffix's title
+    assert ndp.hashlike("deadbeef1234abcd.1080p.BluRay.REMUX")
+
+
+def test_a_posting_that_served_its_nzb_early_returns_its_unused_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): a three-listing posting reserved three downloads up front; when its first listing
+    # served the NZB the other two were never given back, and a later posting went unfetched
+    from tests.fakes import rar5_head
+    pick, other = release(TITLE, prefix="p"), _with_pars(TITLE, "r", 10000000)
+    known = release(TITLE, prefix="k", extra_bytes=3)
+    for ix in ("i1", "i2", "i3"):                                    # one posting, three listings
+        hydra.add(TITLE, known, indexer=ix, posted=1700000000)
+    hydra.add(RENAMED, other, indexer="i4")
+    payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 139990000), "r-0-0@x": rar5_head("x.mkv", 139990000)}
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert other in [base64.b64decode(a["params"][1]) for a in nzbget.appends]

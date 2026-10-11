@@ -502,6 +502,10 @@ def grabbed(result):
     return result[1] != "refused" or any(n and k not in ("refused", "relisted") for k, n in (result[4] or {}).items())
 
 
+TAG_WORDS = {"remux", "hybrid", "proper", "repack", "internal", "multi", "dubbed", "subbed", "uhd", "extended",
+             "uncut", "imax", "complete", "remastered", "unrated"}  # tags PTT may leave as a "title"
+
+
 def digest_tags(name):
     """What follows a listing's leading digest (its tags), or "" when nothing does."""
     parts = re.split(r"[.\s_\-()\[\]]+", basename(name).strip(), maxsplit=1)
@@ -515,7 +519,8 @@ def hashlike(name):
     a = release_attrs(rest) if rest else {"seasons": (), "episodes": (), "year": None}
     if a["seasons"] or a["episodes"] or a["year"]:  # only the tags after the digest (its digits are no year)
         return False
-    if rest and release_attrs(rest)["title"] not in ("", release_attrs(rest)["group"]):
+    t = release_attrs(rest)["title"] if rest else ""
+    if t and t != release_attrs(rest)["group"] and t not in TAG_WORDS:
         return False  # a title follows the digest: it names a release  # it names an episode or year: a real title, not an obfuscated listing
     return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first))  # a hex digest
 
@@ -1164,7 +1169,6 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                spent = downloads(fetched)  # every listing the earlier pass downloaded (cooldown skips aren't)
                 now = time.time()
                 free, paid, cache_only = [], [], []
                 for g in order:
@@ -1174,24 +1178,33 @@ class Proxy:
                         paid.append(g)  # a fresh listing on an indexer not cooling down: a fetch, so a slot
                     elif self.cached(fetched, g):
                         cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
-                left = max(0, 3 * cfg.max_donors - spent)
-                spend = []  # paid postings, each cut to the downloads still left in the budget
-                for g in paid:
-                    cut = self.within_budget(fetched, g, left) if left > 0 else []
-                    fresh = sum(r.link not in fetched for r in cut)
-                    if fresh:
-                        spend.append(cut)
-                        left -= fresh
-                    elif self.cached(fetched, g):
-                        cache_only.append(self.cached_only(fetched, g))
-                order = free + cache_only + spend  # the cache costs no fetch: before the paid ones
+                # the cache costs no fetch: before the paid ones, which are cut to the budget chunk by chunk
+                order = free + cache_only + [("paid", g) for g in paid]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
-            for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
+            queue = list(order)
+            while queue:  # fetch the whole (capped) order: health may drop some later
                 if time.time() > deadline:
-                    stats["deadline"] += len(order) - i
+                    stats["deadline"] += len(queue)
                     break
-                chunk = order[i:i + 4]
+                # the budget left after what was really downloaded so far: a posting whose first listing served
+                # its NZB leaves the rest of its reservation to the next chunk
+                left = 3 * cfg.max_donors - downloads(fetched) if cfg.max_donors > 0 else None
+                chunk = []
+                while queue and len(chunk) < 4:
+                    g = queue.pop(0)
+                    if not (isinstance(g, tuple) and g[0] == "paid"):
+                        chunk.append(g)
+                        continue
+                    cut = self.within_budget(fetched, g[1], max(0, left))
+                    fresh = sum(r.link not in fetched for r in cut)
+                    if fresh:
+                        chunk.append(cut)
+                        left -= fresh
+                    elif self.cached(fetched, g[1]):
+                        chunk.append(self.cached_only(fetched, g[1]))  # no budget left: its cache, no fetch
+                if not chunk:
+                    break
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
                                                                        [deadline] * len(chunk)):
                     stats.update({k: n for k, n in attempts.items() if k != "downloaded"})  # a cost, not a rejection
