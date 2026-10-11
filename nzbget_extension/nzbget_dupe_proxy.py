@@ -1140,8 +1140,8 @@ class Proxy:
                     elif self.cached(fetched, g):
                         cache_only.append(self.cached_only(fetched, g))  # nothing fetchable: its cache, no slot
                 left = max(0, 3 * cfg.max_donors - spent)
-                order = free + paid[:left] + cache_only + \
-                    [self.cached_only(fetched, g) for g in paid[left:] if self.cached(fetched, g)]  # no budget: cache only
+                order = free + cache_only + [self.cached_only(fetched, g) for g in paid[left:]  # cache: no fetch,
+                                             if self.cached(fetched, g)] + paid[:left]  # so before the paid ones
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later
