@@ -1516,3 +1516,17 @@ def test_a_posting_that_served_its_nzb_early_returns_its_unused_budget(make_prox
     p.watch_once()
     p.wait_idle(30)
     assert other in [base64.b64decode(a["params"][1]) for a in nzbget.appends]
+
+
+def test_postings_beyond_a_chunks_reservation_wait_for_its_real_cost(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): postings that didn't fit a chunk's reservation were dropped before the chunk ran
+    pick, donor = release(TITLE, prefix="p"), release(TITLE, prefix="d", extra_bytes=9)
+    for ix in ("i1", "i2", "i3"):                                    # the pick's own posting, three listings
+        hydra.add(TITLE, pick, indexer=ix, posted=1700000000)
+    hydra.add(TITLE, donor, indexer="i4")
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(donor)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert donor in [base64.b64decode(a["params"][1]) for a in nzbget.appends]

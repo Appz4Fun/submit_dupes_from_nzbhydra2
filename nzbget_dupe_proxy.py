@@ -1190,7 +1190,7 @@ class Proxy:
                 # the budget left after what was really downloaded so far: a posting whose first listing served
                 # its NZB leaves the rest of its reservation to the next chunk
                 left = 3 * cfg.max_donors - downloads(fetched) if cfg.max_donors > 0 else None
-                chunk = []
+                chunk, deferred = [], []  # deferred: no budget in this chunk, maybe after its real cost is known
                 while queue and len(chunk) < 4:
                     g = queue.pop(0)
                     if not (isinstance(g, tuple) and g[0] == "paid"):
@@ -1203,8 +1203,11 @@ class Proxy:
                         left -= fresh
                     elif self.cached(fetched, g[1]):
                         chunk.append(self.cached_only(fetched, g[1]))  # no budget left: its cache, no fetch
+                    else:
+                        deferred.append(g)
+                queue[:0] = deferred  # back at the front: the next chunk recomputes the budget from real downloads
                 if not chunk:
-                    break
+                    break  # nothing left that fits the budget, even after every chunk's real cost
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
                                                                        [deadline] * len(chunk)):
                     stats.update({k: n for k, n in attempts.items() if k != "downloaded"})  # a cost, not a rejection
