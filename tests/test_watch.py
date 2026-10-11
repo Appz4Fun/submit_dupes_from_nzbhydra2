@@ -1146,3 +1146,17 @@ def test_another_codec_source_or_repack_conflicts(name):
 def test_the_same_attributes_named_differently_do_not_conflict():
     assert not ndp.conflicts(TITLE, "Show.S01E01.1080p.WEB-DL.x264.mkv")
     assert not ndp.conflicts(TITLE, "a8f3c9e1b7d24f60.mkv")
+
+
+def test_a_consistent_listing_that_names_another_codec_is_never_fetched():
+    # Codex review (PR 1): consistent() ignores codec/repack, so an H265 listing took the shortcut
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": "Show S01E01 1080p WEB H265", "size": 1})()
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+
+
+def test_other_audio_conflicts():
+    # Codex review (PR 1): AAC2.0 named inside passed for a DDP5.1 pick
+    pick = "Show.S01E01.1080p.WEB.DDP5.1.H264-GRP"
+    assert ndp.conflicts(pick, "Show.S01E01.1080p.WEB.AAC2.0.H264-GRP.mkv")
+    assert not ndp.conflicts(pick, "Show.S01E01.1080p.WEB.H264.mkv")

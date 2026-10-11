@@ -481,7 +481,7 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return True
     if not lenient:
         return False
-    if consistent(primary_title, r.title):
+    if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
     return not readable(r.title) and not conflicts(primary_title, r.title) and \
         not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
@@ -507,8 +507,8 @@ def conflicts(a_name, b_name):
         return True
     if any(b[k] and not a[k] for k in ("repack", "proper")):
         return True
-    if any(a[k] and b[k] and not (a[k] <= b[k] or b[k] <= a[k]) for k in ("codec", "quality")):
-        return True  # another codec or source (WEB vs WEB-DL compatible, WEB vs BluRay not)
+    if any(a[k] and b[k] and not (a[k] <= b[k] or b[k] <= a[k]) for k in COMPAT):
+        return True  # another codec, source, audio, ... (WEB vs WEB-DL compatible, WEB vs BluRay not)
     return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
 
 

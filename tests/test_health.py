@@ -713,3 +713,43 @@ def test_fetch_body_gives_every_server_a_turn_within_the_deadline(monkeypatch):
     t = _time.time()
     assert dh.fetch_body(["slow", "fast"], "<x@y>", timeout=1.0) == b"data"
     assert asked == ["slow", "fast"] and _time.time() - t < 1.5
+
+
+def test_closing_a_stalled_server_does_not_eat_the_next_ones_turn(monkeypatch):
+    # Codex review (PR 1): cancelling a stalled read waited for its QUIT, using up the next server's share
+    import asyncio, time as _time
+    import donor_health as dh
+    asked = []
+
+    class Conn:
+        def __init__(self, server):
+            self.server = server
+
+        async def _connect_once(self):
+            pass
+
+        async def _send_command(self, cmd):
+            asked.append(self.server)
+            if self.server == "slow":
+                await asyncio.sleep(10)
+            return 222, ""
+
+        async def _read_multiline(self):
+            return ["=ybegin line=128 size=4 name=x", "data", "=yend size=4"]
+
+    async def slow_quit(conn):
+        await asyncio.sleep(5)
+
+    class Slots:
+        def try_take(self):
+            return True
+
+        def give_back(self):
+            pass
+    monkeypatch.setattr(dh, "AsyncNntpConnection", Conn)
+    monkeypatch.setattr(dh, "_quit", slow_quit)
+    monkeypatch.setattr(dh, "_slots", lambda s: Slots())
+    monkeypatch.setattr(dh, "_yenc_data", lambda lines: b"data")
+    t = _time.time()
+    assert dh.fetch_body(["slow", "fast"], "<x@y>", timeout=1.0) == b"data"
+    assert asked == ["slow", "fast"] and _time.time() - t < 2.5

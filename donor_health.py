@@ -450,7 +450,10 @@ async def _fetch_one_body(server, deadline, message_id, sized):
         data = _yenc_data(lines)
         return (data, _ybegin_size(lines)) if sized and data else data
     finally:
-        await _quit(conn)
+        try:  # bounded: a stalled server's QUIT must not eat the next server's share of the deadline
+            await asyncio.wait_for(_quit(conn), 0.2)
+        except Exception:
+            pass
         slots.give_back()
 
 
