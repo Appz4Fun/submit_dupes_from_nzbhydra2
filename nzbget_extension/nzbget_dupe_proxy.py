@@ -1201,6 +1201,8 @@ class Proxy:
                     if fresh:
                         chunk.append(cut)
                         left -= fresh
+                        if len(cut) < len(g[1]):  # cut short by the budget: its other listings wait for the real cost
+                            deferred.append(g)
                     elif self.cached(fetched, g[1]):
                         chunk.append(self.cached_only(fetched, g[1]))  # no budget left: its cache, no fetch
                     else:
