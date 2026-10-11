@@ -1160,3 +1160,10 @@ def test_other_audio_conflicts():
     pick = "Show.S01E01.1080p.WEB.DDP5.1.H264-GRP"
     assert ndp.conflicts(pick, "Show.S01E01.1080p.WEB.AAC2.0.H264-GRP.mkv")
     assert not ndp.conflicts(pick, "Show.S01E01.1080p.WEB.H264.mkv")
+
+
+def test_a_packed_movie_of_another_title_without_a_year_is_another_title():
+    # Codex review (PR 1): "Other.Movie.1080p.WEB.H264-GRP.mkv" carries no year, but it is readable: a real title
+    assert ndp.other_title(MOVIE, "Other.Movie.1080p.WEB.H264-GRP.mkv")
+    assert not ndp.other_title(MOVIE, "Quiet.Harbour.1080p.WEB.H264-GRP.mkv")
+    assert not ndp.other_title(MOVIE, "a8f3c9e1b7d24f60.mkv")

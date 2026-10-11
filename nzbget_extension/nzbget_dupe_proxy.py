@@ -494,10 +494,11 @@ def basename(name):
 
 
 def other_title(a_name, b_name):
-    """b names another title: it carries an episode or year (so its title is a real one, not an obfuscated
-    hash) and that title is not a's."""
+    """b names another title: it carries an episode, a year, or a group/resolution (so its title is a real one,
+    not an obfuscated hash) and that title is not a's."""
     a, b = release_attrs(a_name), release_attrs(basename(b_name))
-    return bool(b["title"] and (b["seasons"] or b["episodes"] or b["year"]) and b["title"] != a["title"])
+    real = b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))  # not an obfuscated hash
+    return bool(b["title"] and real and b["title"] != a["title"])
 
 
 def conflicts(a_name, b_name):
