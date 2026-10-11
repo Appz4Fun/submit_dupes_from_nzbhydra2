@@ -1376,3 +1376,10 @@ def test_a_run_together_title_with_digits_is_still_another_title():
     # Codex review (PR 3): "13ReasonsWhy" passed the hash predicate, so other_title() let it in
     assert not ndp.hashlike("13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
     assert ndp.other_title(TITLE, "13ReasonsWhy.S01E01.1080p.WEB.H264-GRP.mkv")
+
+
+def test_a_title_and_year_run_together_is_no_hash():
+    # Codex review (PR 3): "13ReasonsWhy2017.S01E01..." passed the hash predicate and took fetch slots
+    assert not ndp.hashlike("13ReasonsWhy2017.S01E01.1080p.WEB.H264-GRP")
+    assert not ndp.hashlike("a8f3c9e1b7d24f60.S01E01.1080p")       # an episode named: not an obfuscated listing
+    assert ndp.hashlike("a8f3c9e1b7d24f60.1080p")

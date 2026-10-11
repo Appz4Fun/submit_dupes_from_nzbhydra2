@@ -490,11 +490,12 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
 
 
 def hashlike(name):
-    """Is the name's title an obfuscated hash (letters and digits run together, 12+ long), whatever tags follow?"""
+    """Is the name an obfuscated listing: a hex digest (12+) first, no episode or year, whatever tags follow?"""
     first = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)[0]  # before any separator
-    if re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first):
-        return True  # hex: a digest
-    return bool(re.fullmatch(r"[a-z0-9]{16,}", first)) and sum(c.isdigit() for c in first) >= 4
+    a = release_attrs(basename(name))
+    if a["seasons"] or a["episodes"] or a["year"]:
+        return False  # it names an episode or year: a real title, not an obfuscated listing
+    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first))  # a hex digest
 
 
 def basename(name):
