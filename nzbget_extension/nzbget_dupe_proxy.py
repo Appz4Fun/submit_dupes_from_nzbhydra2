@@ -491,9 +491,10 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
 
 def hashlike(name):
     """Is the name an obfuscated listing: a hex digest (12+) first, no episode or year, whatever tags follow?"""
-    first = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)[0]  # before any separator
-    a = release_attrs(basename(name))
-    if a["seasons"] or a["episodes"] or a["year"]:
+    parts = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)
+    first, rest = parts[0], parts[1] if len(parts) > 1 else ""  # the digest, then whatever tags follow it
+    a = release_attrs(rest) if rest else {"seasons": (), "episodes": (), "year": None}
+    if a["seasons"] or a["episodes"] or a["year"]:  # only the tags after the digest (its digits are no year)
         return False  # it names an episode or year: a real title, not an obfuscated listing
     return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-f])[0-9a-f]{12,}", first))  # a hex digest
 
@@ -1001,6 +1002,16 @@ class Proxy:
                 time.sleep(FETCH_RETRY_DELAY)
         return reason, None, None, status
 
+    @classmethod
+    def free(cls, fetched, listings):
+        """Can this posting be looked at again without a fetch: cached, and either settled (served the NZB it
+        lists) or with no listing left to try?"""
+        hit = cls.cached(fetched, listings)
+        if hit is None:
+            return False
+        fresh = any(r.link not in fetched for r in listings)
+        return not fresh or hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
+
     @staticmethod
     def cached(fetched, listings):
         """The earlier result for a posting any of whose listings this release already fetched, else None."""
@@ -1112,8 +1123,8 @@ class Proxy:
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
                 spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
-                order = [g for g in order if self.cached(fetched, g)] + \
-                    [g for g in order if not self.cached(fetched, g)][:max(0, 3 * cfg.max_donors - spent)]
+                order = [g for g in order if self.free(fetched, g)] + \
+                    [g for g in order if not self.free(fetched, g)][:max(0, 3 * cfg.max_donors - spent)]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later

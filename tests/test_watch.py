@@ -1394,3 +1394,20 @@ def test_no_lenient_pass_once_the_deadline_has_passed(make_proxy, nzbget, hydra,
     p.wait_idle(30)
     lenient_only = "q=show+s01e01&"                                  # the episode without its resolution
     assert not [q for q in hydra.queries if lenient_only in q], hydra.queries
+
+
+def test_a_digest_with_digits_like_a_year_is_still_a_digest():
+    # Codex review (PR 3): "deadbeef2024abcd" read 2024 as a year
+    assert ndp.hashlike("deadbeef2024abcd.1080p")
+    assert not ndp.hashlike("deadbeef2024abcd.S01E01.1080p")
+
+
+def test_a_cached_group_with_fresh_listings_to_try_costs_budget(make_proxy):
+    # Codex review (PR 3): an unsettled cached group (failed, or another NZB than listed) retries its fresh
+    # listings, so it was let past the 3 * MAX_DONORS cap for free
+    p = _watcher(make_proxy)
+    L = lambda link: type("R", (), {"link": link, "size": 1000})()  # noqa: E731
+    fetched = {"a": (L("a"), "fetch", None, None, None), "s": (L("s"), "ok", b"", None, None)}
+    assert not p.free(fetched, [L("b"), L("a")])                    # will fetch b: costs a slot
+    assert p.free(fetched, [L("a")])                                # nothing new to fetch
+    assert p.free(fetched, [L("t"), L("s")])                        # settled: looked at again, no fetch
