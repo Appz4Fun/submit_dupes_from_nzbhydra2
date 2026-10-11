@@ -487,6 +487,13 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
+def other_title(a_name, b_name):
+    """b names another title: it carries an episode or year (so its title is a real one, not an obfuscated
+    hash) and that title is not a's."""
+    a, b = release_attrs(a_name), release_attrs(b_name)
+    return bool(b["title"] and (b["seasons"] or b["episodes"] or b["year"]) and b["title"] != a["title"])
+
+
 def conflicts(a_name, b_name):
     """Does b's name state something a's contradicts: another group, resolution, HDR/DV format, or episode?"""
     a, b = release_attrs(a_name), release_attrs(b_name)
@@ -512,7 +519,7 @@ def lenient_ok(title, info, ci, mine=None, theirs=None):
     its files must be named as the pick. Obfuscated files that can't be looked inside are no proof: another
     encode of the episode can have as many volumes of about the same size."""
     if mine and theirs:  # (extension, bytes, name): the name inside may not say another release either
-        return mine[:2] == theirs[:2] and not conflicts(title, theirs[2])
+        return mine[:2] == theirs[:2] and not conflicts(title, theirs[2]) and not other_title(title, theirs[2])
     return readable(ci.main_name) and same_release(title, ci.main_name)
 
 
@@ -1150,6 +1157,10 @@ class Proxy:
         self.rerank(path, auth, self.ctx.placed + theirs, dist, stats, ranks)
         for b in theirs:
             kept[b.id] = (b.score, b.alive, False)
+            for tid in checked_backups.get("twins", {}).get(b.id, ()):  # the same NZB keeps its sibling's rank
+                if self.set_score(path, auth, tid, b.score):
+                    log.info("reranked backup nzbid=%d: same NZB as nzbid=%d, score %d", tid, b.id,
+                             b.score + self.base())
         primary_check.join()
         if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
             candidates = dict(checked_backups.get("ranked", {}))
@@ -1358,7 +1369,8 @@ class Proxy:
                                "seen": [_int(x.get("NZBID")) for x in items]}  # every backup this ranking covered
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
-            out.update(ranked=ranked, pick=pick_h)
+            out.update(ranked=ranked, pick=pick_h,
+                       twins={s: [t for t, _, sib in twins if sib == s] for _, _, s in twins})
         elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
         return ranked
