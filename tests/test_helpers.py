@@ -366,3 +366,11 @@ def test_inner_file_of_a_rar4_volume_with_an_unknown_size_is_unknown():
     from tests.fakes import rar4_head
     assert ndp.inner_file(rar4_head("Movie.mkv", 0xFFFFFFFF)) is None
     assert ndp.inner_file(rar4_head("Movie.mkv", 0xFFFFFFFFFFFFFFFF)) is None
+
+
+def test_inner_entry_skips_a_small_video_ahead_of_the_main_one():
+    # Codex review (PR 1): an intro.mp4 ahead of the episode became the archive's identity
+    from tests.fakes import rar5_head
+    head = rar5_head("Show.S01E01.mkv", 5000000000, sidecars=(("intro.mp4", b"i" * 64),))
+    assert ndp.inner_entry(head, min_size=1000000)[:2] == ("mkv", 5000000000)
+    assert ndp.inner_entry(rar5_head("intro.mp4", 64), min_size=1000000) is None

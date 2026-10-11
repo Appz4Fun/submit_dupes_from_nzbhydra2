@@ -825,3 +825,41 @@ def test_a_cancelled_quit_still_closes_the_socket(monkeypatch):
     monkeypatch.setattr(dh, "_slots", lambda s: Slots())
     dh.fetch_body(["a"], "<x@y>", timeout=1.0)
     assert len(dropped) == 1
+
+
+def test_stalled_servers_skip_quit_once_their_share_is_used(monkeypatch):
+    # Codex review (PR 1): each stalled server's 200 ms QUIT came out of later servers' shares
+    import asyncio, time as _time
+    import donor_health as dh
+    asked = []
+
+    class Conn:
+        def __init__(self, server):
+            self.server, self._writer, self._reader = server, None, None
+
+        async def _connect_once(self):
+            pass
+
+        async def _send_command(self, cmd):
+            asked.append(self.server)
+            if self.server != "good":
+                await asyncio.sleep(10)
+            return 222, ""
+
+        async def _read_multiline(self):
+            return []
+
+    async def slow_quit(conn):
+        await asyncio.sleep(0.2)
+
+    class Slots:
+        def try_take(self):
+            return True
+
+        def give_back(self):
+            pass
+    monkeypatch.setattr(dh, "AsyncNntpConnection", Conn)
+    monkeypatch.setattr(dh, "_quit", slow_quit)
+    monkeypatch.setattr(dh, "_slots", lambda s: Slots())
+    monkeypatch.setattr(dh, "_yenc_data", lambda lines: b"data")
+    assert dh.fetch_body(["a", "b", "c", "good"], "<x@y>", timeout=1.0) == b"data"

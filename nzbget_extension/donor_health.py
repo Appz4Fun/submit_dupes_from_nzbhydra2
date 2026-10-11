@@ -450,8 +450,10 @@ async def _fetch_one_body(server, deadline, message_id, sized):
         data = _yenc_data(lines)
         return (data, _ybegin_size(lines)) if sized and data else data
     finally:
-        try:  # bounded: a stalled server's QUIT must not eat the next server's share of the deadline
-            await asyncio.wait_for(_quit(conn), 0.2)
+        try:  # bounded by this server's share: past it, the socket is just dropped (below), no QUIT
+            left = min(0.2, deadline - asyncio.get_running_loop().time())
+            if left > 0:
+                await asyncio.wait_for(_quit(conn), left)
         except Exception:
             pass
         finally:  # whatever happened to the QUIT (even the caller's cancellation, which goes on): a still open

@@ -272,7 +272,7 @@ def _vint(data, i):
             return value, i
 
 
-def _rar5_file(data):
+def _rar5_file(data, min_size=0):
     i = 8
     while i < len(data):
         size, j = _vint(data, i + 4)          # header CRC32, then the header size
@@ -297,7 +297,7 @@ def _rar5_file(data):
             if len(raw) < n or fflags & 8:    # cut off, or (8) unpacked size unknown
                 return None
             name = raw.decode("utf-8", "replace")
-            if is_media(name):
+            if is_media(name) and unpacked >= min_size:  # a small video (intro, trailer) is no main video
                 return name, unpacked
             i = end + data_size               # a sidecar (nfo, sample notes): the media file comes later
             continue
@@ -307,7 +307,7 @@ def _rar5_file(data):
     return None
 
 
-def _rar4_file(data):
+def _rar4_file(data, min_size=0):
     i = 7
     while i + 7 <= len(data):
         kind, flags, size = data[i + 2], int.from_bytes(data[i + 3:i + 5], "little"), \
@@ -327,7 +327,7 @@ def _rar4_file(data):
             if flags & 0x200:                 # Unicode name: an ANSI name, a NUL, then the encoded Unicode one
                 raw = raw.split(b"\x00", 1)[0]
             name = raw.decode("utf-8", "replace")
-            if is_media(name):  # all ones: RAR4's "unpacked size unknown", no identity
+            if is_media(name) and unpacked >= min_size:  # all ones: RAR4's "unpacked size unknown", no identity
                 return None if unpacked in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF) else (name, unpacked)
             packed = int.from_bytes(data[i + 7:i + 11], "little") | (
                 int.from_bytes(data[i + 32:i + 36], "little") << 32 if flags & 0x100 else 0)
@@ -345,16 +345,16 @@ def inner_file(data, name="", total=None):
     return found[:2] if found else None
 
 
-def inner_entry(data, name="", total=None):
+def inner_entry(data, name="", total=None, min_size=0):
     """(extension, bytes) of the file a posting delivers, read from the start of one of its files: the packed
     media file a RAR4/RAR5 volume holds (every volume repeats its header; sidecars ahead of it are skipped,
     an archive with no media file in reach is unknown), or a bare media file's own size (`total`,
     from the article's =ybegin line). None when it can't be told (7z, encrypted headers, anything else)."""
     try:
         if data.startswith(b"Rar!\x1a\x07\x01\x00"):
-            found = _rar5_file(data)
+            found = _rar5_file(data, min_size)
         elif data.startswith(b"Rar!\x1a\x07\x00"):
-            found = _rar4_file(data)
+            found = _rar4_file(data, min_size)
         elif is_media(name) and total:
             found = (name, total)
         else:
@@ -914,7 +914,8 @@ class Proxy:
                 qs.append({"t": "search", "q": bare})
         if lenient and short:  # the episode/year without its resolution: postings named without it come back too
             toks = norm.split(".")
-            cut = next(i for i, t in enumerate(toks) if MARKER_RE.match(t))
+            episode = [i for i, t in enumerate(toks) if re.match(r"^s\d{1,3}e\d{1,4}$", t)]
+            cut = episode[0] if episode else next(i for i, t in enumerate(toks) if MARKER_RE.match(t))
             bare = " ".join(toks[:cut + 1])
             if all(bare != q.get("q") for q in qs):
                 qs.append({"t": "search", "q": bare})
@@ -1451,7 +1452,7 @@ class Proxy:
                 return None  # out of time: unknown, and not cached (a later search may read it)
             got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
             every_read = every_read and bool(got)
-            found = inner_entry(got[0], name, got[1]) if got else None
+            found = inner_entry(got[0], name, got[1], info.data_bytes * 2 // 5) if got else None
             if found:
                 break
         if found or every_read:  # a failed read (server down) is not "no inner file": a later search tries again
