@@ -496,6 +496,10 @@ class FetchBudget:
     def __init__(self, left):
         self.left, self.lock = max(0, left), threading.Lock()
 
+    def spent(self):
+        with self.lock:
+            return self.left <= 0
+
     def take(self):
         with self.lock:
             if self.left <= 0:
@@ -1004,6 +1008,8 @@ class Proxy:
         its refusal is known before the next grab."""
         if self.hydra_off():
             return "refused", None, None
+        if budget is not None and budget.spent():
+            return "budget", None, None  # nothing left to take: no waiting on the indexer's lock
         with self._indexer_lock(r.indexer):
             if self.refused.get(r.indexer, 0) > time.time():
                 return "refused", None, None
@@ -1211,11 +1217,17 @@ class Proxy:
             budget = FetchBudget(3 * cfg.max_donors - downloads(fetched)) if cfg.max_donors > 0 else None
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
-            for i in range(0, len(order), 4):  # fetch the whole order: health may drop some later
+            # free and cached postings four at a time; with a budget, paid ones one at a time in rank order, so the
+            # best-ranked get the downloads, not whichever thread reaches its indexer first
+            if budget is not None:
+                head, rest = order[:len(free) + len(cache_only)], order[len(free) + len(cache_only):]
+                chunks = [head[i:i + 4] for i in range(0, len(head), 4)] + [[g] for g in rest]
+            else:
+                chunks = [order[i:i + 4] for i in range(0, len(order), 4)]
+            for n, chunk in enumerate(chunks):  # fetch the whole order: health may drop some later
                 if time.time() > deadline:
-                    stats["deadline"] += len(order) - i
+                    stats["deadline"] += sum(len(c) for c in chunks[n:])
                     break
-                chunk = order[i:i + 4]
                 for r, reason, data, ci, attempts in pool.map(self.fetch_once, [fetched] * len(chunk), chunk,
                                                                        [deadline] * len(chunk), [budget] * len(chunk)):
                     stats.update({k: n for k, n in attempts.items() if isinstance(k, str) and k != "downloaded"})
