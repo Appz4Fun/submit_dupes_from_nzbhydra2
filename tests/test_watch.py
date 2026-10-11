@@ -1456,3 +1456,12 @@ def test_a_cached_group_whose_fresh_listings_are_cooling_is_looked_at_free(make_
     assert not p.free(fetched, g)
     assert not any(r.link not in fetched and p.refused.get(r.indexer, 0) <= __import__("time").time() for r in g)
     assert [r.link for r in p.cached_only(fetched, g)] == ["a"]
+
+
+def test_a_posting_whose_last_listing_was_refused_still_counts_its_downloads():
+    # Codex review (PR 3): a group that downloaded a bad NZB and then hit a cooling indexer last reported
+    # "refused", and its real download cost no budget
+    from collections import Counter
+    assert ndp.grabbed((None, "refused", None, None, Counter(parse=1, refused=1)))
+    assert not ndp.grabbed((None, "refused", None, None, Counter(refused=1)))
+    assert ndp.grabbed((None, "ok", b"", None, Counter()))

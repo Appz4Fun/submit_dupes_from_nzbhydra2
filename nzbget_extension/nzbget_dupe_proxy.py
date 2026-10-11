@@ -489,6 +489,12 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
 
 
+def grabbed(result):
+    """Did a fetch_posting() result cost a download: it ended on one, or one of its listings was downloaded
+    before a later one was skipped on an indexer's cooldown?"""
+    return result[1] != "refused" or any(n and k not in ("refused", "relisted") for k, n in (result[4] or {}).items())
+
+
 def hashlike(name):
     """Is the name an obfuscated listing: a hex digest (12+) first, no episode or year, whatever tags follow?"""
     parts = re.split(r"[.\s_\-()\[\]]+", basename(name).lower().strip(), maxsplit=1)
@@ -1129,7 +1135,7 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
-                spent = len({id(v) for v in fetched.values() if v[1] != "refused"})  # grabbed (cooldown skips aren't)
+                spent = len({id(v) for v in fetched.values() if grabbed(v)})  # downloads (cooldown skips aren't)
                 now = time.time()
                 free, paid, cache_only = [], [], []
                 for g in order:
