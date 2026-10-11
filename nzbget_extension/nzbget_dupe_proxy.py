@@ -1571,7 +1571,7 @@ class Proxy:
         (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
         finished, so a wholer one can sit below a worse one until now."""
         live = sorted((p for p in placed if p.score > 1), key=lambda p: (  # a backup's v is None
-            p.unchecked, -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
+            p.unchecked, -p.score if p.unchecked else 0, -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
             dist(p.v[2].total_bytes if p.v else p.size) if p.v or p.size else 0,
             -p.v[0].grabs if p.v else 0))
         olds = {p.score for p in live}

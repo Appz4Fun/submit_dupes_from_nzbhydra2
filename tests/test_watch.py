@@ -1188,3 +1188,14 @@ def test_a_dry_run_donor_counts_once_across_both_passes(make_proxy):
     stats = __import__("collections").Counter()
     assert p.add_donor("k", "", "/jsonrpc", "", (r, b"", ci), 80, {}, "fast", stats) == -1
     assert p.add_donor("k", "", "/jsonrpc", "", (r, b"", ci), 80, {}, "fast", stats) == 0
+
+
+def test_unchecked_backups_keep_their_score_order(make_proxy):
+    # Codex review (PR 1): an unreadable backup (size unknown) sorted ahead of a higher-scored one by size and
+    # the no-raise clamp then tied them at 2
+    p = _watcher(make_proxy)
+    hi = ndp.Placed(1, 89, None, False, None, 300, True)
+    lo = ndp.Placed(2, 2, None, False, None, 0, True)
+    p.set_score = lambda *a, **kw: True
+    p.rerank("/jsonrpc", "", [hi, lo], lambda size: abs(size - 140), __import__("collections").Counter())
+    assert hi.score > lo.score
