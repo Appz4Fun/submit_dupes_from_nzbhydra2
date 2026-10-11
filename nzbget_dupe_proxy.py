@@ -1137,6 +1137,7 @@ class Proxy:
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
         self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}
         self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes
+        self.ctx.budget = None  # the search's 3 * MAX_DONORS downloads (created by its first pass)
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap and time.time() < t0 + self.cfg.deadline:
@@ -1216,7 +1217,9 @@ class Proxy:
                 order = free + cache_only + paid  # the cache costs no fetch: before the paid ones
             # 3 * MAX_DONORS downloads per release, both passes together: each listing download takes one, so a
             # posting whose first listing serves its NZB leaves the rest to the postings after it
-            budget = FetchBudget(3 * cfg.max_donors - downloads(fetched)) if cfg.max_donors > 0 else None
+            if getattr(self.ctx, "budget", None) is None and cfg.max_donors > 0:
+                self.ctx.budget = FetchBudget(3 * cfg.max_donors)  # one per search: both passes, retries included
+            budget = getattr(self.ctx, "budget", None) if cfg.max_donors > 0 else None
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             # free and cached postings four at a time; with a budget, paid ones one at a time in rank order, so the

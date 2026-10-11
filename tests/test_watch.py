@@ -1561,3 +1561,18 @@ def test_a_retry_takes_its_own_budget(make_proxy, monkeypatch):
     budget = ndp.FetchBudget(1)
     assert p.fetch(r, __import__("time").time() + 30, 1, budget)[0] == "fetch"
     assert calls == [1] and budget.spent()
+
+
+def test_both_passes_share_one_budget_object(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 3): the lenient pass rebuilt its budget from cached listing counts, which leave out
+    # retries, and so got back allowance the first pass had spent
+    pick = release(TITLE, prefix="p")
+    for i in range(3):
+        hydra.add(TITLE, b"garbage", size=ndp.parse_nzb(pick).total_bytes + i + 1)
+    hydra.add(RENAMED, b"garbage", size=ndp.parse_nzb(pick).total_bytes + 7)
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(hydra.fetches) <= 3, hydra.fetches
