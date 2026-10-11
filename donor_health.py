@@ -454,7 +454,8 @@ async def _fetch_one_body(server, deadline, message_id, sized):
             await asyncio.wait_for(_quit(conn), 0.2)
         except Exception:
             pass
-        slots.give_back()
+        finally:  # whatever happened to the QUIT (even the caller's cancellation, which goes on), the slot goes back
+            slots.give_back()
 
 
 def fetch_body(servers, message_id, timeout=30.0, sized=False):

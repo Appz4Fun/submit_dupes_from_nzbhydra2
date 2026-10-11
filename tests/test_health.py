@@ -753,3 +753,39 @@ def test_closing_a_stalled_server_does_not_eat_the_next_ones_turn(monkeypatch):
     t = _time.time()
     assert dh.fetch_body(["slow", "fast"], "<x@y>", timeout=1.0) == b"data"
     assert asked == ["slow", "fast"] and _time.time() - t < 2.5
+
+
+def test_a_slot_is_given_back_even_when_quit_is_cancelled(monkeypatch):
+    # Codex review (PR 1): cancellation during the bounded QUIT skipped give_back(), leaking the slot for good
+    import asyncio
+    import donor_health as dh
+    given = []
+
+    class Conn:
+        def __init__(self, server):
+            pass
+
+        async def _connect_once(self):
+            pass
+
+        async def _send_command(self, cmd):
+            await asyncio.sleep(0.25)          # the BODY ends near the deadline ...
+            return 222, ""
+
+        async def _read_multiline(self):
+            return []
+
+    async def cancelled_quit(conn):
+        await asyncio.sleep(5)                 # ... so the caller's timeout cancels us during QUIT
+
+    class Slots:
+        def try_take(self):
+            return True
+
+        def give_back(self):
+            given.append(1)
+    monkeypatch.setattr(dh, "AsyncNntpConnection", Conn)
+    monkeypatch.setattr(dh, "_quit", cancelled_quit)
+    monkeypatch.setattr(dh, "_slots", lambda s: Slots())
+    dh.fetch_body(["a"], "<x@y>", timeout=0.3)
+    assert given == [1]
