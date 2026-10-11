@@ -272,7 +272,7 @@ def _vint(data, i):
             return value, i
 
 
-def _rar5_file(data):
+def _rar5_file(data, min_size=0):
     i = 8
     while i < len(data):
         size, j = _vint(data, i + 4)          # header CRC32, then the header size
@@ -297,7 +297,7 @@ def _rar5_file(data):
             if len(raw) < n or fflags & 8:    # cut off, or (8) unpacked size unknown
                 return None
             name = raw.decode("utf-8", "replace")
-            if is_media(name):
+            if is_media(name) and unpacked >= min_size:  # a small video (intro, trailer) is no main video
                 return name, unpacked
             i = end + data_size               # a sidecar (nfo, sample notes): the media file comes later
             continue
@@ -307,7 +307,7 @@ def _rar5_file(data):
     return None
 
 
-def _rar4_file(data):
+def _rar4_file(data, min_size=0):
     i = 7
     while i + 7 <= len(data):
         kind, flags, size = data[i + 2], int.from_bytes(data[i + 3:i + 5], "little"), \
@@ -327,8 +327,8 @@ def _rar4_file(data):
             if flags & 0x200:                 # Unicode name: an ANSI name, a NUL, then the encoded Unicode one
                 raw = raw.split(b"\x00", 1)[0]
             name = raw.decode("utf-8", "replace")
-            if is_media(name):
-                return name, unpacked
+            if is_media(name) and unpacked >= min_size:  # all ones: RAR4's "unpacked size unknown", no identity
+                return None if unpacked in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF) else (name, unpacked)
             packed = int.from_bytes(data[i + 7:i + 11], "little") | (
                 int.from_bytes(data[i + 32:i + 36], "little") << 32 if flags & 0x100 else 0)
             i += size + packed                # a sidecar: the media file comes later
@@ -340,16 +340,22 @@ def _rar4_file(data):
 
 
 def inner_file(data, name="", total=None):
+    """(extension, bytes) of inner_entry()."""
+    found = inner_entry(data, name, total)
+    return found[:2] if found else None
+
+
+def inner_entry(data, name="", total=None, min_size=0):
     """(extension, bytes) of the file a posting delivers, read from the start of one of its files: the packed
     media file a RAR4/RAR5 volume holds (every volume repeats its header; sidecars ahead of it are skipped,
     an archive with no media file in reach is unknown), or a bare media file's own size (`total`,
     from the article's =ybegin line). None when it can't be told (7z, encrypted headers, anything else)."""
     try:
         if data.startswith(b"Rar!\x1a\x07\x01\x00"):
-            found = _rar5_file(data)
+            found = _rar5_file(data, min_size)
         elif data.startswith(b"Rar!\x1a\x07\x00"):
-            found = _rar4_file(data)
-        elif is_media(name) and total:
+            found = _rar4_file(data, min_size)
+        elif is_media(name) and total and total >= min_size:
             found = (name, total)
         else:
             return None
@@ -358,7 +364,7 @@ def inner_file(data, name="", total=None):
     if not found or not found[1]:
         return None
     ext = found[0].rsplit(".", 1)[-1].lower() if "." in found[0] else ""
-    return ext, found[1]
+    return ext, found[1], found[0]
 
 
 def par2_block_size(data):
@@ -475,10 +481,36 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return True
     if not lenient:
         return False
-    if consistent(primary_title, r.title):
+    if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return not readable(r.title) and bool(primary_bytes and r.size) and \
+    return not readable(r.title) and not conflicts(primary_title, r.title) and \
+        not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def basename(name):
+    """A (packed) file's own name, without the folders it sits in."""
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def other_title(a_name, b_name):
+    """b names another title: it carries an episode, a year, or a group/resolution (so its title is a real one,
+    not an obfuscated hash) and that title is not a's."""
+    a, b = release_attrs(a_name), release_attrs(basename(b_name))
+    real = b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))  # not an obfuscated hash
+    return bool(b["title"] and real and b["title"] != a["title"])
+
+
+def conflicts(a_name, b_name):
+    """Does b's name state something a's contradicts: another group, resolution, HDR/DV format, or episode?"""
+    a, b = release_attrs(a_name), release_attrs(basename(b_name))
+    if a["year"] and b["year"] and a["year"] != b["year"]:
+        return True
+    if any(b[k] and not a[k] for k in ("repack", "proper")):
+        return True
+    if any(a[k] and b[k] and not (a[k] <= b[k] or b[k] <= a[k]) for k in COMPAT):
+        return True  # another codec, source, audio, ... (WEB vs WEB-DL compatible, WEB vs BluRay not)
+    return any(b[k] and b[k] != a[k] for k in ("group", "resolution", "seasons", "episodes") + EXACT)
 
 
 def consistent(a_name, b_name):
@@ -504,8 +536,10 @@ def lenient_ok(title, info, ci, mine=None, theirs=None):
     inner_file()) is exactly the pick's (`mine`), whatever the posting's par2 or name; when either is unknown,
     its files must be named as the pick. Obfuscated files that can't be looked inside are no proof: another
     encode of the episode can have as many volumes of about the same size."""
-    if mine and theirs:
-        return mine == theirs
+    if theirs and (conflicts(title, theirs[2]) or other_title(title, theirs[2])):
+        return False  # the name inside says another release, whether or not the pick's could be read
+    if mine and theirs:  # (extension, bytes, name)
+        return mine[:2] == theirs[:2]
     return readable(ci.main_name) and same_release(title, ci.main_name)
 
 
@@ -708,7 +742,9 @@ class Placed:
     score: int
     alive: object  # share, or None if unknown
     twin: bool
-    v: tuple       # (Result, nzb bytes, NzbInfo)
+    v: tuple       # (Result, nzb bytes, NzbInfo); None for a submitter's backup
+    size: int = 0  # a backup's bytes (a donor's are v[2].total_bytes)
+    unchecked: bool = False  # a backup whose health is unknown: below every checked one
 
 
 def alive_of(health, v):
@@ -892,7 +928,8 @@ class Proxy:
                 qs.append({"t": "search", "q": bare})
         if lenient and short:  # the episode/year without its resolution: postings named without it come back too
             toks = norm.split(".")
-            cut = next(i for i, t in enumerate(toks) if MARKER_RE.match(t))
+            episode = [i for i, t in enumerate(toks) if re.match(r"^s\d{1,3}e\d{1,4}$", t)]
+            cut = episode[0] if episode else next(i for i, t in enumerate(toks) if MARKER_RE.match(t))
             bare = " ".join(toks[:cut + 1])
             if all(bare != q.get("q") for q in qs):
                 qs.append({"t": "search", "q": bare})
@@ -964,10 +1001,15 @@ class Proxy:
         its listings' links) is looked at again, not grabbed again."""
         hit = self.cached(fetched, listings)
         fresh = [r for r in listings if r.link not in fetched]
-        if hit is not None and (hit[1] == "ok" or not fresh):
+        settled = hit is not None and hit[1] == "ok" and (hit[3] is None or not listing_mismatch(hit[0], hit[3]))
+        if hit is not None and (settled or not fresh):
             return hit[:4] + (Counter(),)
-        if hit is not None:  # the earlier listings failed: try the ones not asked yet
-            listings = fresh
+        if hit is not None:  # the earlier listings failed or served another NZB: try the ones not asked yet
+            got = self.fetch_posting(fresh, deadline)
+            if got[1] != "ok" and hit[1] == "ok":
+                got = hit[:4] + (got[4],)  # nothing better: keep the earlier (mismatched) one
+            fetched.update((r.link, got) for r in fresh)
+            return got
         got = self.fetch_posting(listings, deadline)
         fetched.update((r.link, got) for r in listings)
         return got
@@ -992,7 +1034,8 @@ class Proxy:
 
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
-        self.ctx.fetched, self.ctx.backups, self.ctx.placed = {}, None, []  # the first pass's grabs and backup ranking, for the second
+        self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}
+        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes  # the first pass's grabs and backup ranking, for the second
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
@@ -1078,11 +1121,12 @@ class Proxy:
                     named_other = readable(ci.main_name) and not same_release(title, ci.main_name)
                     if lenient and (named_other or not same_release(title, r.title)):
                         mine, theirs = self.inner(servers, info, deadline), self.inner(servers, ci, deadline)
-                        if readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
+                        if conflicts(title, ci.main_name) or other_title(title, ci.main_name) or \
+                                readable(ci.main_name) and not consistent(title, ci.main_name) or not lenient_ok(
                                 title, info, ci, mine, theirs):
                             stats["other-release"] += 1  # an alt: what's inside is not the pick's file
                             continue
-                        if mine and mine == theirs:
+                        if mine and theirs and mine[:2] == theirs[:2]:
                             self.ctx.same_inner.add(ci.fingerprint)
                     elif named_other:
                         stats["other-release"] += 1
@@ -1105,11 +1149,13 @@ class Proxy:
         twin = lambda ci: ci.files == info.files and ci.total_bytes == info.total_bytes  # noqa: E731
         live = [v for v in verified if not self.dead(v, probe, stats, "probe")]
         n_fast = int(max(0, min(cfg.fast_donors, cap)))
-        added, placed = 0, {}  # placed: fingerprint -> Placed, donors now in nzbget
+        added, placed, would = 0, {}, {}  # placed: fingerprint -> Placed, donors now in nzbget; would: dry run
         for v in live[:n_fast]:  # quick: probe-alive donors go to nzbget right away
             score = ranks.take(alive_of(probe, v), twin(v[2]))
             donor_id = self.add_donor(key, category, path, auth, v, score, probe, "fast", stats)
             added += donor_id != 0
+            if donor_id < 0:  # dry run: what it would have been, for the swap decision
+                would[v[2].fingerprint] = (score, alive_of(probe, v))
             if donor_id > 0:
                 placed[v[2].fingerprint] = Placed(donor_id, score, alive_of(probe, v), twin(v[2]), v)
         # then full samples of every donor at once, handled as each finishes: refine fast donors, add the rest
@@ -1133,24 +1179,47 @@ class Proxy:
             if was_fast:
                 if fp in placed:
                     self.rescore(path, auth, placed[fp], health, ranks, stats)
+                elif fp in would and h is not None and h.alive is not None:  # dry run: the full sample's word
+                    dead = h.alive < cfg.donor_min_alive and h.missing >= donor_health.MIN_KNOWN
+                    if dead:
+                        would.pop(fp)
+                    else:
+                        would[fp] = (would[fp][0], h.alive)
             elif added >= cap:
                 stats["over-cap"] += 1
             elif not self.dead(v, health, stats, "full sample"):
                 score = ranks.take(alive_of(health, v), twin(v[2]))
                 donor_id = self.add_donor(key, category, path, auth, v, score, health, "checked", stats)
                 added += donor_id != 0
+                if donor_id < 0:
+                    would[fp] = (score, alive_of(health, v))
                 if donor_id > 0:
                     placed[fp] = Placed(donor_id, score, alive_of(health, v), twin(v[2]), v)
         if getattr(self.ctx, "placed", None) is None:
             self.ctx.placed = []
-        self.ctx.placed += list(placed.values())  # both passes' donors are ranked together
-        self.rerank(path, auth, self.ctx.placed, dist, stats, ranks)
+        self.ctx.placed += list(placed.values())  # both passes' donors are ranked together ...
+        backups.join()                             # ... and with the submitter's own backups
+        kept = checked_backups.get("ranked", {})
+        sizes = checked_backups.get("sizes", {})
+        theirs = [Placed(bid, sc, al, False, None, sizes.get(bid, 0)) for bid, (sc, al, dead) in kept.items()
+                  if not dead and sc > 1 and al is not None]
+        theirs_unchecked = [Placed(bid, sc, None, False, None, sizes.get(bid, 0), True)
+                            for bid, sc in checked_backups.get("unchecked", {}).items()]
+        self.rerank(path, auth, self.ctx.placed + theirs + theirs_unchecked, dist, stats, ranks)
+        for u in theirs_unchecked:  # the next pass starts from these scores, not the stale ones
+            checked_backups.setdefault("unchecked", {})[u.id] = u.score
+        for b in theirs:
+            kept[b.id] = (b.score, b.alive, False)
+            for tid in checked_backups.get("twins", {}).get(b.id, ()):  # the same NZB keeps its sibling's rank
+                if self.set_score(path, auth, tid, b.score):
+                    log.info("reranked backup nzbid=%d: same NZB as nzbid=%d, score %d", tid, b.id,
+                             b.score + self.base())
         primary_check.join()
-        backups.join()
         if checked_backups.get("pick") is not None:  # swap candidates: the client's backups and the new donors
             candidates = dict(checked_backups.get("ranked", {}))
             candidates.update({p.id: (p.score, p.alive, False) for p in placed.values()
                                if p.score > 1 and p.alive is not None})
+            candidates.update({-1 - i: (sc, al, False) for i, (sc, al) in enumerate(would.values()) if al is not None})
             self.swap_if_failing(path, auth, title, abs(nzbid), checked_backups["pick"], candidates, info, all_servers)
         log.info("append key=%s nzbid=%s title=%s results=%d candidates=%d verified=%d added=%d%s rejected=%s "
                  "time=%.1fs", key, nzbid, title, len(results), len(cands), len(verified),
@@ -1260,6 +1329,7 @@ class Proxy:
                  and x.get("Status") in ("DELETED/DUPE", "DELETED/COPY")]
         groups, seen, twins = {}, {}, []  # twins: backups with the same NZB as one already in groups
         unknown = []  # backups whose health stays unknown (NZB unreadable, or no server answered)
+        unchecked = {}  # ... and the scores they were ranked at
         for x in items:
             info, _ = self.queued_nzb(path, auth, x)
             if info is None:
@@ -1331,8 +1401,11 @@ class Proxy:
             score = ranks.take(None)
             if _int(x.get("DupeScore")) <= score + base:  # already in or below the ranked band: never raise
                 ranks.release(score)
+                if _int(x.get("DupeScore")) - base > 1:  # in the band: the final rerank still places it
+                    unchecked[_int(x.get("NZBID"))] = _int(x.get("DupeScore")) - base
                 continue
             if self.set_score(path, auth, _int(x.get("NZBID")), score):
+                unchecked[_int(x.get("NZBID"))] = score
                 stats["backup-ranked"] += 1
                 log.info("ranked backup nzbid=%s %s: score %d -> %d, health unknown", x.get("NZBID"),
                          x.get("NZBName") or x.get("Name"), _int(x.get("DupeScore")), score + base)
@@ -1354,7 +1427,9 @@ class Proxy:
                                "seen": [_int(x.get("NZBID")) for x in items]}  # every backup this ranking covered
                 self.state.save()
         if out is not None:  # the caller swaps once its own donors are in too
-            out.update(ranked=ranked, pick=pick_h)
+            out.update(ranked=ranked, pick=pick_h, unchecked=unchecked,
+                       sizes={b: i.total_bytes for b, (_, i) in groups.items()},
+                       twins={s: [t for t, _, sib in twins if sib == s] for _, _, s in twins})
         elif pick_h is not None:
             self.swap_if_failing(path, auth, title, pick_id, pick_h, ranked)
         return ranked
@@ -1387,6 +1462,9 @@ class Proxy:
         with self.block_lock:
             if info.heads in self.inners:
                 return self.inners[info.heads]
+        memo = getattr(self.ctx, "inner_memo", None)  # this search's failed reads: tried once per search
+        if memo is not None and info.heads in memo:
+            return memo[info.heads]
         found, every_read = None, True
         for sid, name in info.heads:
             left = 30.0 if deadline is None else min(30.0, deadline - time.time())
@@ -1394,12 +1472,14 @@ class Proxy:
                 return None  # out of time: unknown, and not cached (a later search may read it)
             got = donor_health.fetch_body(servers, sid, timeout=left, sized=True)
             every_read = every_read and bool(got)
-            found = inner_file(got[0], name, got[1]) if got else None
+            found = inner_entry(got[0], name, got[1], info.data_bytes * 2 // 5) if got else None
             if found:
                 break
         if found or every_read:  # a failed read (server down) is not "no inner file": a later search tries again
             with self.block_lock:
                 self.inners[info.heads] = found
+        elif memo is not None:
+            memo[info.heads] = None
         return found
 
     def par_block(self, servers, info):
@@ -1522,22 +1602,26 @@ class Proxy:
         strictly falling, each at most its target_score, and never one that another posting of the key holds
         (`ranks`: the backups' scores, and an earlier pass's donors). Donors were added in the order their checks
         finished, so a wholer one can sit below a worse one until now."""
-        live = sorted((p for p in placed if p.score > 1), key=lambda p: (
-            -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin, dist(p.v[2].total_bytes),
-            -p.v[0].grabs))
+        live = sorted((p for p in placed if p.score > 1), key=lambda p: (  # a backup's v is None
+            p.unchecked, -p.score if p.unchecked else 0, -round(100 * (1.0 if p.alive is None else p.alive)), not p.twin,
+            dist(p.v[2].total_bytes if p.v else p.size) if p.v or p.size else 0,
+            -p.v[0].grabs if p.v else 0))
         olds = {p.score for p in live}
         held = (ranks.used - olds) if ranks is not None else set()
         prev = 100
         for p in live:
             want = max(2, min(target_score(p.alive, p.twin), prev - 1))
+            if p.unchecked:  # no new health evidence: never above where it already was
+                want = min(want, p.score)
             while want in held and want > 2:
                 want -= 1
             prev = want
             if want == p.score:
                 continue
             if self.set_score(path, auth, p.id, want):
-                log.info("reranked donor nzbid=%d %s [%s]: score %d -> %d, alive=%s", p.id, p.v[0].title,
-                         p.v[0].indexer, p.score, want, pct(p.alive))
+                log.info("reranked %s nzbid=%d %s [%s]: score %d -> %d, alive=%s", "donor" if p.v else "backup",
+                         p.id, p.v[0].title if p.v else "", p.v[0].indexer if p.v else "", p.score, want,
+                         pct(p.alive))
                 p.score = want
             else:
                 stats["rescore"] += 1
@@ -1575,6 +1659,12 @@ class Proxy:
         desc = "score=%d %s [%s, %d files, %d bytes, grabs=%d, alive=%s] (%s)" % (
             score + self.base(), r.title, r.indexer, ci.files, ci.total_bytes, r.grabs, pct(h.alive if h else None), how)
         if self.cfg.dry_run:
+            sent = getattr(self.ctx, "dry_sent", None)
+            if sent is not None and ci.fingerprint in sent:  # the lenient pass meeting a first-pass donor again
+                stats["already-sent"] += 1
+                return 0
+            if sent is not None:
+                sent.add(ci.fingerprint)
             log.info("DRY-RUN would add donor %s", desc)
             return -1
         with self.state.lock:
