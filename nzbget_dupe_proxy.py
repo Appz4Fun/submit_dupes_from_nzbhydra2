@@ -483,9 +483,15 @@ def candidate_ok(primary_title, primary_bytes, r, tol, lenient=False):
         return False
     if consistent(primary_title, r.title) and not conflicts(primary_title, r.title):
         return True  # same title and episode, nothing in the name says otherwise: what's inside decides (lenient_ok)
-    return not readable(r.title) and not conflicts(primary_title, r.title) and \
+    return (not readable(r.title) or hashlike(r.title)) and not conflicts(primary_title, r.title) and \
         not other_title(primary_title, r.title) and bool(primary_bytes and r.size) and \
         abs(r.size - primary_bytes) <= LENIENT_LISTED * primary_bytes
+
+
+def hashlike(name):
+    """Is the name's title an obfuscated hash (letters and digits run together, 12+ long), whatever tags follow?"""
+    t = release_attrs(basename(name))["title"]
+    return bool(re.fullmatch(r"(?=.*\d)(?=.*[a-z])[a-z0-9]{12,}", t))
 
 
 def basename(name):
@@ -497,7 +503,7 @@ def other_title(a_name, b_name):
     """b names another title: it carries an episode, a year, or a group/resolution (so its title is a real one,
     not an obfuscated hash) and that title is not a's."""
     a, b = release_attrs(a_name), release_attrs(basename(b_name))
-    real = b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))  # not an obfuscated hash
+    real = (b["seasons"] or b["episodes"] or b["year"] or readable(basename(b_name))) and not hashlike(b_name)
     return bool(b["title"] and real and b["title"] != a["title"])
 
 
@@ -1035,13 +1041,13 @@ class Proxy:
     def discover(self, key, title, info, category, path, auth, nzbid, t0, base=0):
         added, self.ctx.unrescued, ranks = 0, False, Ranks()  # one Ranks: both passes draw distinct scores
         self.ctx.fetched, self.ctx.backups, self.ctx.placed, self.ctx.inner_memo = {}, None, [], {}
-        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes  # the first pass's grabs and backup ranking, for the second
+        self.ctx.dry_sent = set()  # dry run: donors this search would have added, across both passes
         try:
             added = self._discover(key, title, info, category, path, auth, nzbid, t0, base, ranks=ranks)
             if self.ctx.unrescued and added < self.cfg.donor_cap:  # will fail, nothing whole by its name: look wider
                 log.info("search %s: pick will likely fail and no backup is whole: searching leniently", title)
                 self.ctx.unrescued = False
-                added += self._discover(key, title, info, category, path, auth, nzbid, time.time(), base, True,
+                added += self._discover(key, title, info, category, path, auth, nzbid, t0, base, True,  # one deadline
                                         ranks, added)
         finally:
             self.state.searched(key, abs(nzbid), added)  # none added: searched again after RESEARCH_EMPTY
@@ -1075,7 +1081,8 @@ class Proxy:
                                              info.total_bytes, info.listed))
             self.ctx.backups = checked_backups
         backups.start()
-        dist = lambda size: abs(size - info.total_bytes)  # noqa: E731  closest size = most likely byte-identical
+        size0 = whole_bytes(info) if lenient else info.total_bytes  # a truncated pick: compare with its whole size
+        dist = lambda size: abs(size - size0)  # noqa: E731  closest size = most likely byte-identical
         pool = ThreadPoolExecutor(4)
         try:
             for f in [pool.submit(self.hydra_search, q) for q in self.queries(title, info, lenient)]:
@@ -1099,8 +1106,9 @@ class Proxy:
             first_of_size = {g[0].size: g for g in reversed(order)}
             order = sorted(order, key=lambda g: first_of_size[g[0].size] is not g)
             if cfg.max_donors > 0:  # each fetch costs an indexer grab; postings already fetched cost none
+                spent = len({id(v) for v in fetched.values()})  # postings the earlier pass already grabbed
                 order = [g for g in order if self.cached(fetched, g)] + \
-                    [g for g in order if not self.cached(fetched, g)][:3 * cfg.max_donors]
+                    [g for g in order if not self.cached(fetched, g)][:max(0, 3 * cfg.max_donors - spent)]
             known_f = pool.submit(self.known_postings, path, auth, nzbget_config, key, title)  # beside the fetches
             verified, postings = [], [info.message_ids]
             for i in range(0, len(order), 4):  # fetch the whole (capped) order: health may drop some later

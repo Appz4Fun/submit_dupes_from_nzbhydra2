@@ -807,7 +807,7 @@ def test_the_lenient_pass_spends_its_fetches_on_postings_the_first_pass_did_not_
     payloads = {"p-0-0@x": rar5_head(TITLE + ".mkv", 1399900000), "r-0-0@x": rar5_head("x.mkv", 1399900000)}
     nzbget.config_entries = FakeNntp(_part(pick, 0.3) + article_ids(other), payloads=payloads).config(1)
     _pick(nzbget, tmp_path, pick)
-    p = _watcher(make_proxy, max_donors=1)
+    p = _watcher(make_proxy, max_donors=2)  # 3 * 2 grabs for the release: 3 dead, then the renamed one
     p.watch_once()
     p.wait_idle(30)
     assert [base64.b64decode(a["params"][1]) for a in nzbget.appends] == [other]
@@ -1318,3 +1318,30 @@ def test_a_posting_whose_names_conflict_costs_no_head_reads(make_proxy, nzbget, 
     p.watch_once()
     p.wait_idle(30)
     assert not reads and not nzbget.appends
+
+
+def test_an_obfuscated_listing_with_a_resolution_tag_still_reaches_the_inner_check():
+    # Codex review (PR 1): "a8f3c9e1b7d24f60.1080p" reads as readable (a resolution), so its hash title was taken
+    # for another title and the size fallback never let it through to lenient_ok()
+    info = ndp.parse_nzb(release(TITLE, prefix="p"))
+    r = type("R", (), {"title": "a8f3c9e1b7d24f60.1080p", "size": info.total_bytes})()
+    assert ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+    r.title = "a8f3c9e1b7d24f60.2160p"                               # a resolution it states still conflicts
+    assert not ndp.candidate_ok(TITLE, info.total_bytes, r, 0, True)
+
+
+def test_the_lenient_pass_shares_the_first_passs_deadline_and_fetch_budget(make_proxy, nzbget, hydra, tmp_path):
+    # Codex review (PR 1): the lenient pass got a fresh deadline and a fresh 3 * MAX_DONORS fetch allowance, so a
+    # failing pick could cost twice the documented grabs
+    from tests.fakes import rar5_head
+    pick = release(TITLE, prefix="p")
+    for i in range(3):
+        hydra.add(TITLE, release(TITLE, prefix="d%d" % i, extra_bytes=i + 1))
+    for i in range(3):
+        hydra.add(RENAMED + " v%d" % i, _with_pars(TITLE, "z%d" % i, 10000000 + i))
+    nzbget.config_entries = FakeNntp(_part(pick, 0.3)).config(1)
+    _pick(nzbget, tmp_path, pick)
+    p = _watcher(make_proxy, max_donors=1)
+    p.watch_once()
+    p.wait_idle(30)
+    assert len(hydra.fetches) <= 3, hydra.fetches
