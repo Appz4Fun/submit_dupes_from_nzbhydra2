@@ -423,28 +423,60 @@ def _yenc_data(lines):
         return None
 
 
-def fetch_body(servers, message_id, timeout=30.0):
-    """One small article's decoded data (a par2 index) from the first server that has it, else None. Takes one
-    of each server's connection slots in turn, so it never exceeds a server's cap."""
-    async def one(server):
-        slots, deadline = _slots(server), asyncio.get_running_loop().time() + timeout
-        while not slots.try_take():
-            if asyncio.get_running_loop().time() > deadline:
-                return None
-            await asyncio.sleep(0.05)
-        conn = AsyncNntpConnection(server)
-        try:
-            await conn._connect_once()
-            code, _ = await conn._send_command("BODY %s" % normalize_message_id(message_id))
-            return _yenc_data(await conn._read_multiline()) if code == 222 else None
-        finally:
-            await _quit(conn)
+def _ybegin_size(lines):
+    """The file size its =ybegin line declares (the whole file, not this part), else None."""
+    for raw in lines:
+        line = raw.encode("latin-1") if isinstance(raw, str) else bytes(raw)
+        if line.startswith(b"=ybegin"):
+            m = re.search(rb"\bsize=(\d+)", line)
+            return int(m.group(1)) if m else None
+    return None
+
+
+async def _fetch_one_body(server, deadline, message_id, sized):
+    """fetch_body()'s read from one server, giving up at `deadline` (loop time) while waiting for a slot."""
+    slots = _slots(server)
+    while not slots.try_take():
+        if asyncio.get_running_loop().time() > deadline:
+            return None
+        await asyncio.sleep(0.05)
+    conn = AsyncNntpConnection(server)
+    try:
+        await conn._connect_once()
+        code, _ = await conn._send_command("BODY %s" % normalize_message_id(message_id))
+        if code != 222:
+            return None
+        lines = await conn._read_multiline()
+        data = _yenc_data(lines)
+        return (data, _ybegin_size(lines)) if sized and data else data
+    finally:
+        try:  # bounded by this server's share: past it, the socket is just dropped (below), no QUIT
+            left = min(0.2, deadline - asyncio.get_running_loop().time())
+            if left > 0:
+                await asyncio.wait_for(_quit(conn), left)
+        except Exception:
+            pass
+        finally:  # whatever happened to the QUIT (even the caller's cancellation, which goes on): a still open
+            if getattr(conn, "_writer", None) is not None:  # socket is dropped, then the slot goes back
+                _drop(conn)
             slots.give_back()
 
+
+def fetch_body(servers, message_id, timeout=30.0, sized=False):
+    """One small article's decoded data (a par2 index) from the first server that has it, else None. Takes one
+    of each server's connection slots in turn, so it never exceeds a server's cap. sized: (data, the file size
+    its =ybegin line declares) instead, or None. `timeout` bounds the whole call; each server gets an even
+    share of what is left, so one stalled server can't keep the others from being asked."""
     async def run():
-        for server in servers:
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout
+        for i, server in enumerate(servers):
+            left = end - loop.time()
+            if left <= 0:
+                break
+            share = left / (len(servers) - i)
             try:
-                data = await asyncio.wait_for(one(server), timeout)
+                data = await asyncio.wait_for(_fetch_one_body(server, loop.time() + share, message_id, sized), share)
             except Exception:
                 continue
             if data:
